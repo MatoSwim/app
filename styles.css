@@ -411,6 +411,14 @@ legend svg{width:18px;height:18px;color:var(--bosque)}
 .sheet .navbtn:hover{background:var(--paper-2)}
 .sheet .navbtn[aria-current="page"]{background:var(--menta);color:var(--ink)}
 
+/* ---------- Varios ---------- */
+.side-link{color:var(--on-dark-soft);font-size:.8rem;padding:6px 12px 0;text-decoration:none}
+.side-link:hover{color:var(--on-dark);text-decoration:underline}
+label.check{flex-direction:row;align-items:flex-start;gap:10px;color:var(--ink);font-weight:500;font-size:.92rem;padding:5px 0}
+label.check input{margin-top:4px;flex:none}
+label.check a{color:var(--bosque);font-weight:700}
+.aviso>svg{width:18px;height:18px;vertical-align:-3px;margin-right:4px;color:var(--bosque)}
+
 /* ---------- Solo lectura (asesor) ---------- */
 .readonly form[data-f]:not([data-f="msg"]):not([data-f="advSession"]) :is(button,input,select,textarea){pointer-events:none;opacity:.55}
 

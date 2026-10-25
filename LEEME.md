@@ -42,7 +42,15 @@ Mientras `config.js` no tenga el enlace del Apps Script, la app funciona solo en
 
 ## Para el equipo
 
-**Hacer asesor a alguien.** Que cree su cuenta desde la app. Luego, en Apps Script, abre la función `hacerAsesor`, escribe su correo entre las comillas, elígela en la lista y toca **Ejecutar**. Que cierre sesión y vuelva a entrar: verá "Mis clientes".
+**Crear la cuenta de administrador (una sola vez).** En Apps Script, busca la función `crearAdmin`, escribe nombre, correo y contraseña entre las comillas, elígela en la lista de arriba y toca **Ejecutar**. Después **borra la contraseña del código** y guarda. Entra a la app con ese correo: verás el panel "Restaurantes".
+
+**Qué puede hacer el administrador.** Ver la lista de restaurantes (nombre, dueño, plan; nunca sus números), activar o desactivar funciones (simulador, promociones, financiamiento, comunidad, equipo), cambiar el plan, suspender una cuenta, moderar la comunidad y crear asesores.
+
+**Asesores.** Se crean desde el panel, en "Asesores". Cuando un restaurante pague el Acompañamiento, en "Restaurantes" toca **Administrar**, elige Acompañamiento y su asesor. El asesor solo ve los restaurantes que le asignaste y no puede cambiar nada.
+
+**Solicitudes.** Si un dueño toca "Solicitar Acompañamiento", aparece arriba en el panel para que lo actives al recibir el pago o lo rechaces.
+
+**Correo de contacto del aviso de privacidad.** En `config.js`, escribe un correo del equipo en `contacto`.
 
 **Dar acceso a un encargado.** Lo hace el dueño desde la app, en Configuración > Tu equipo en la app.
 
@@ -61,5 +69,5 @@ Mientras `config.js` no tenga el enlace del Apps Script, la app funciona solo en
 - Google limita el uso diario gratuito; para decenas de restaurantes alcanza de sobra.
 - Las cifras de impuestos y cuotas son estimaciones; no sustituyen a un contador.
 - La comunidad se actualiza cada 30 segundos o con el botón "Actualizar".
-- El equipo dueño del Sheets puede ver los datos de todos los restaurantes. Avísenlo a los dueños que la prueben.
+- La cuenta de administrador no ve finanzas, pero quien sea dueño del Sheets técnicamente sí podría abrirlo. Así lo dice el aviso de privacidad (`privacidad.html`).
 - Usen datos de ejemplo para empleados mientras sea una prueba.

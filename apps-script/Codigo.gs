@@ -8,6 +8,13 @@
  * Cómo publicarlo: ver LEEME.md. En corto:
  *   Extensiones > Apps Script > pega este código > Implementar > Nueva implementación >
  *   Tipo: Aplicación web · Ejecutar como: Yo · Quién tiene acceso: Cualquier persona.
+ *
+ * Roles:
+ *   dueno   · dueño del restaurante: ve y maneja todo su restaurante.
+ *   staff   · encargado: solo ventas, caja, compras y cierres de su restaurante.
+ *   asesor  · del equipo: ve, sin cambiar, solo los restaurantes que el administrador le asignó.
+ *   admin   · administrador: activa planes y funciones, crea asesores y los asigna.
+ *             NO puede abrir las finanzas de ningún restaurante desde la app.
  */
 
 /* ===================== Estructura de las hojas ===================== */
@@ -29,15 +36,18 @@ var COLECCIONES = {
   mensajes:     ['fecha', 'de', 'autor', 'texto']
 };
 var SISTEMA = {
-  usuarios:      ['id', 'email', 'nombre', 'rol', 'restauranteId', 'hash', 'salt', 'creado', 'activo:b'],
+  usuarios:      ['id', 'email', 'nombre', 'rol', 'restauranteId', 'hash', 'salt', 'creado', 'activo:b', 'aviso'],
   sesiones:      ['token', 'usuarioId', 'creado', 'expira'],
-  restaurantes:  ['id', 'nombre', 'ciudad', 'giro', 'plan', 'creado', 'datos:j', 'asesor:j'],
+  restaurantes:  ['id', 'nombre', 'ciudad', 'giro', 'plan', 'creado', 'datos:j', 'asesor:j', 'funciones:j', 'suspendido:b', 'solicitud'],
   publicaciones: ['id', 'autorId', 'autor', 'restaurante', 'ciudad', 'categoria', 'fecha', 'titulo', 'cuerpo', 'votos:j', 'denuncias:j', 'oculta:b'],
   comentarios:   ['id', 'publicacionId', 'autorId', 'autor', 'restaurante', 'fecha', 'texto']
 };
 // Lo que puede tocar el encargado (rol "staff")
 var STAFF_PUEDE = { ventas: 1, cortes: 1, compras: 1, productos: 1, proveedores: 1, cierres: 1, pagos: 1 };
 var DIAS_SESION = 30;
+// Funciones que el administrador puede activar o desactivar por restaurante
+var FUNCIONES = ['simulador', 'promos', 'financiamiento', 'comunidad', 'equipo'];
+var MSG_SUSP = 'La cuenta de este restaurante está suspendida. Escribe al equipo de .Py México para reactivarla.';
 
 /* ===================== Entrada ===================== */
 function doGet() {
@@ -64,12 +74,14 @@ var ACCIONES = {
   registro: function (p) {
     var email = limpiaEmail_(p.email); validaPass_(p.pass);
     if (!p.nombre || !p.restaurante) throw err_('Escribe tu nombre y el nombre del restaurante.');
+    if (!p.aviso) throw err_('Para crear tu cuenta necesitas aceptar el aviso de privacidad.');
     return conCandado_(function () {
       if (buscaUsuario_(email)) throw err_('Ya existe una cuenta con ese correo. Entra con tu contraseña o recupérala.');
       var rid = Utilities.getUuid(), ahora = new Date().toISOString();
       var config = { saldoInicial: Number(p.saldo) || 0, diasCompromisos: 7, umbralVerde: 20000, impuestoPct: 4, cuotasPct: 12, fondoCaja: 1500 };
-      agrega_('restaurantes', [{ id: rid, nombre: String(p.restaurante).slice(0, 80), ciudad: String(p.ciudad || '').slice(0, 60), giro: '', plan: p.plan === 'acompanamiento' ? 'acompanamiento' : 'autogestion', creado: ahora, datos: { config: config, reservaMeta: 0 }, asesor: {} }]);
-      var u = creaUsuario_(email, String(p.nombre).slice(0, 60), String(p.pass), 'dueno', rid);
+      // Todos empiezan en Autogestión; Acompañamiento lo activa el administrador cuando se confirma el pago.
+      agrega_('restaurantes', [{ id: rid, nombre: String(p.restaurante).slice(0, 80), ciudad: String(p.ciudad || '').slice(0, 60), giro: '', plan: 'autogestion', creado: ahora, datos: { config: config, reservaMeta: 0 }, asesor: {}, funciones: {}, suspendido: false, solicitud: p.plan === 'acompanamiento' ? 'acompanamiento' : '' }]);
+      var u = creaUsuario_(email, String(p.nombre).slice(0, 60), String(p.pass), 'dueno', rid, ahora);
       return sesionPara_(u);
     });
   },
@@ -77,6 +89,7 @@ var ACCIONES = {
     var email = limpiaEmail_(p.email);
     var u = buscaUsuario_(email);
     if (!u || !u.activo || hash_(String(p.pass || ''), u.salt) !== u.hash) throw err_('El correo o la contraseña no coinciden. Revisa e intenta de nuevo.');
+    if (u.rol === 'dueno' || u.rol === 'staff') restauranteActivo_(u);
     return conCandado_(function () { return sesionPara_(u); });
   },
   salir: function (p) {
@@ -108,6 +121,7 @@ var ACCIONES = {
   cargar: function (p) {
     var u = auth_(p); var rid = restauranteDe_(u, p.restauranteId);
     var R = buscaPor_('restaurantes', 'id', rid); if (!R) throw err_('No encontramos ese restaurante.');
+    if (R.suspendido && u.rol !== 'asesor') throw err_(MSG_SUSP, 'suspendida');
     var cols = {};
     for (var c in COLECCIONES) {
       if (u.rol === 'staff' && !STAFF_PUEDE[c]) { cols[c] = []; continue; }
@@ -117,10 +131,11 @@ var ACCIONES = {
     }
     var datos = R.datos || {};
     if (u.rol === 'staff') datos = { config: { fondoCaja: (datos.config || {}).fondoCaja || 1500 } };
-    return { restaurante: { id: R.id, nombre: R.nombre, ciudad: R.ciudad, giro: R.giro, plan: R.plan, datos: datos, asesor: R.asesor || {} }, cols: cols };
+    return { restaurante: { id: R.id, nombre: R.nombre, ciudad: R.ciudad, giro: R.giro, plan: R.plan, datos: datos, asesor: asesorPublico_(R), funciones: funcionesDe_(R), solicitud: R.solicitud || '' }, cols: cols };
   },
   sync: function (p) {
-    var u = auth_(p); if (u.rol === 'asesor') throw err_('Como asesor no puedes cambiar los datos del restaurante.');
+    var u = auth_(p); if (u.rol === 'asesor' || u.rol === 'admin') throw err_('Tu cuenta no puede cambiar los datos de un restaurante.');
+    restauranteActivo_(u);
     var rid = u.restauranteId; var n = 0;
     conCandado_(function () {
       var cols = {}; var k;
@@ -139,6 +154,7 @@ var ACCIONES = {
   },
   reemplazar: function (p) {
     var u = auth_(p); if (u.rol !== 'dueno') throw err_('Solo el dueño puede reemplazar todos los datos.');
+    restauranteActivo_(u);
     var rid = u.restauranteId;
     conCandado_(function () {
       for (var c in COLECCIONES) {
@@ -154,9 +170,11 @@ var ACCIONES = {
     return {};
   },
   mensajes: function (p) {
-    var u = auth_(p); var rid = restauranteDe_(u, p.restauranteId);
+    var u = auth_(p); if (u.rol === 'staff') throw err_('Esta sección es solo para el dueño.');
+    if (u.rol === 'dueno') restauranteActivo_(u);
+    var rid = restauranteDe_(u, p.restauranteId);
     var R = buscaPor_('restaurantes', 'id', rid);
-    return { mensajes: leeColeccion_('mensajes', rid), asesor: (R && R.asesor) || {} };
+    return { mensajes: leeColeccion_('mensajes', rid), asesor: asesorPublico_(R) };
   },
   asesorMsg: function (p) {
     var u = auth_(p); if (u.rol !== 'asesor') throw err_('Solo los asesores pueden usar esta opción.');
@@ -165,7 +183,6 @@ var ACCIONES = {
     var m = { id: Utilities.getUuid(), fecha: new Date().toISOString(), de: 'asesor', autor: u.nombre, texto: texto };
     conCandado_(function () {
       aplica_('mensajes', rid, [m], []);
-      actualiza_('restaurantes', function (r) { return r.id === rid; }, function (r) { r.asesor = r.asesor || {}; r.asesor.nombre = u.nombre; r.asesor.asesorId = u.id; return r; });
     });
     return { mensaje: m };
   },
@@ -173,7 +190,7 @@ var ACCIONES = {
     var u = auth_(p); if (u.rol !== 'asesor') throw err_('Solo los asesores pueden usar esta opción.');
     var rid = restauranteDe_(u, p.restauranteId); var out = {};
     conCandado_(function () {
-      actualiza_('restaurantes', function (r) { return r.id === rid; }, function (r) { r.asesor = r.asesor || {}; r.asesor.nombre = u.nombre; r.asesor.asesorId = u.id; r.asesor.proxima = String(p.proxima || ''); out = r.asesor; return r; });
+      actualiza_('restaurantes', function (r) { return r.id === rid; }, function (r) { r.asesor = r.asesor || {}; r.asesor.proxima = String(p.proxima || ''); out = asesorPublico_(r); return r; });
     });
     return { asesor: out };
   },
@@ -182,18 +199,19 @@ var ACCIONES = {
     var rs = leeTabla_('restaurantes');
     var msgs = leeTodaColeccion_('mensajes'); var ult = {};
     msgs.forEach(function (m) { var r = m.__rid; if (!ult[r] || String(m.fecha) > String(ult[r].fecha)) ult[r] = m; });
-    var deAsesor = {}; leeTabla_('usuarios').forEach(function (x) { if (x.rol === 'asesor') deAsesor[x.restauranteId] = 1; });
-    return { clientes: rs.filter(function (r) { return !deAsesor[r.id]; }).map(function (r) {
+    return { clientes: rs.filter(function (r) { return asignado_(r, u); }).map(function (r) {
       var m = ult[r.id];
       return { id: r.id, nombre: r.nombre, ciudad: r.ciudad, plan: r.plan, proxima: (r.asesor || {}).proxima || '', ultimo: m ? { fecha: m.fecha, texto: m.texto, de: m.de } : null };
     }) };
   },
   equipo: function (p) {
     var u = auth_(p); if (u.rol !== 'dueno') throw err_('Solo el dueño puede ver al equipo.');
+    restauranteActivo_(u);
     return { equipo: leeTabla_('usuarios').filter(function (x) { return x.restauranteId === u.restauranteId && x.activo; }).map(function (x) { return { id: x.id, nombre: x.nombre, email: x.email, rol: x.rol }; }) };
   },
   invitar: function (p) {
     var u = auth_(p); if (u.rol !== 'dueno') throw err_('Solo el dueño puede dar acceso a su equipo.');
+    var R = restauranteActivo_(u); if (!funcionesDe_(R).equipo) throw err_('Esta función no está activa para tu restaurante.');
     var email = limpiaEmail_(p.email); validaPass_(p.pass);
     return conCandado_(function () {
       if (buscaUsuario_(email)) throw err_('Ese correo ya tiene una cuenta en .Py México.');
@@ -204,54 +222,160 @@ var ACCIONES = {
   quitar: function (p) {
     var u = auth_(p); if (u.rol !== 'dueno') throw err_('Solo el dueño puede quitar accesos.');
     conCandado_(function () {
-      actualiza_('usuarios', function (r) { return r.id === p.userId && r.restauranteId === u.restauranteId && r.rol === 'staff'; }, function (r) { r.activo = false; return r; });
-      borraFilas_('sesiones', function (s) { return s.usuarioId === p.userId; });
+      var n = actualiza_('usuarios', function (r) { return r.id === p.userId && r.restauranteId === u.restauranteId && r.rol === 'staff'; }, function (r) { r.activo = false; return r; });
+      if (n) cierraSesiones_([p.userId]);
     });
     return {};
   },
   feed: function (p) {
-    var u = auth_(p);
-    var posts = leeTabla_('publicaciones').filter(function (x) { return !x.oculta; });
+    var u = auth_(p); comunidadOk_(u); var adm = u.rol === 'admin';
+    var posts = leeTabla_('publicaciones').filter(function (x) { return adm || !x.oculta; });
     posts.sort(function (a, b) { return String(b.fecha).localeCompare(String(a.fecha)); });
     posts = posts.slice(0, 150);
     var ids = {}; posts.forEach(function (x) { ids[x.id] = []; });
     leeTabla_('comentarios').forEach(function (c) { if (ids[c.publicacionId]) ids[c.publicacionId].push({ id: c.id, autor: c.autor, restaurante: c.restaurante, fecha: c.fecha, texto: c.texto }); });
     return { posts: posts.map(function (x) {
       var votos = x.votos || [];
-      return { id: x.id, autor: x.autor, restaurante: x.restaurante, ciudad: x.ciudad, categoria: x.categoria, fecha: x.fecha, titulo: x.titulo, cuerpo: x.cuerpo, utiles: votos.length, miUtil: votos.indexOf(u.id) >= 0, mio: x.autorId === u.id,
+      return { id: x.id, autor: x.autor, restaurante: x.restaurante, ciudad: x.ciudad, categoria: x.categoria, fecha: x.fecha, titulo: x.titulo, cuerpo: x.cuerpo, utiles: votos.length, miUtil: votos.indexOf(u.id) >= 0, mio: x.autorId === u.id, oculta: adm ? !!x.oculta : undefined, denuncias: adm ? (x.denuncias || []).length : undefined,
         comentarios: ids[x.id].sort(function (a, b) { return String(a.fecha).localeCompare(String(b.fecha)); }) };
     }) };
   },
   publicar: function (p) {
-    var u = auth_(p);
+    var u = auth_(p); comunidadOk_(u);
     var titulo = String(p.titulo || '').trim().slice(0, 140), cuerpo = String(p.cuerpo || '').trim().slice(0, 4000);
     if (!titulo || !cuerpo) throw err_('Escribe un título y tu pregunta o experiencia.');
-    var R = u.rol === 'asesor' ? null : buscaPor_('restaurantes', 'id', u.restauranteId);
+    var R = (u.rol === 'asesor' || u.rol === 'admin') ? null : buscaPor_('restaurantes', 'id', u.restauranteId);
     conCandado_(function () {
       agrega_('publicaciones', [{ id: Utilities.getUuid(), autorId: u.id, autor: u.nombre, restaurante: R ? R.nombre : 'Equipo .Py México', ciudad: R ? R.ciudad : '', categoria: String(p.categoria || 'General'), fecha: new Date().toISOString(), titulo: titulo, cuerpo: cuerpo, votos: [], denuncias: [], oculta: false }]);
     });
     return {};
   },
   comentar: function (p) {
-    var u = auth_(p); var texto = String(p.texto || '').trim().slice(0, 2000); if (!texto) throw err_('Escribe tu comentario.');
+    var u = auth_(p); comunidadOk_(u); var texto = String(p.texto || '').trim().slice(0, 2000); if (!texto) throw err_('Escribe tu comentario.');
     if (!buscaPor_('publicaciones', 'id', p.postId)) throw err_('Esa publicación ya no existe.');
-    var R = u.rol === 'asesor' ? null : buscaPor_('restaurantes', 'id', u.restauranteId);
+    var R = (u.rol === 'asesor' || u.rol === 'admin') ? null : buscaPor_('restaurantes', 'id', u.restauranteId);
     conCandado_(function () {
       agrega_('comentarios', [{ id: Utilities.getUuid(), publicacionId: p.postId, autorId: u.id, autor: u.nombre, restaurante: R ? R.nombre : 'Equipo .Py México', fecha: new Date().toISOString(), texto: texto }]);
     });
     return {};
   },
   votar: function (p) {
-    var u = auth_(p);
+    var u = auth_(p); comunidadOk_(u);
     conCandado_(function () {
       actualiza_('publicaciones', function (r) { return r.id === p.postId; }, function (r) { var v = r.votos || []; var i = v.indexOf(u.id); if (i >= 0) v.splice(i, 1); else v.push(u.id); r.votos = v; return r; });
     });
     return {};
   },
   reportar: function (p) {
-    var u = auth_(p);
+    var u = auth_(p); comunidadOk_(u);
     conCandado_(function () {
       actualiza_('publicaciones', function (r) { return r.id === p.postId; }, function (r) { var d = r.denuncias || []; if (d.indexOf(u.id) < 0) d.push(u.id); r.denuncias = d; if (d.length >= 3) r.oculta = true; return r; });
+    });
+    return {};
+  },
+
+  /* ----- Dueño: pedir plan y borrar su cuenta ----- */
+  solicitarPlan: function (p) {
+    var u = auth_(p); if (u.rol !== 'dueno') throw err_('Solo el dueño puede pedir un cambio de plan.');
+    restauranteActivo_(u);
+    var s = p.cancelar ? '' : 'acompanamiento';
+    conCandado_(function () { actualiza_('restaurantes', function (r) { return r.id === u.restauranteId; }, function (r) { r.solicitud = r.plan === 'acompanamiento' ? '' : s; return r; }); });
+    return { solicitud: s };
+  },
+  borrarCuenta: function (p) {
+    var u = auth_(p); if (u.rol !== 'dueno') throw err_('Solo el dueño puede borrar la cuenta del restaurante.');
+    var full = buscaPor_('usuarios', 'id', u.id);
+    if (!full || hash_(String(p.pass || ''), full.salt) !== full.hash) throw err_('La contraseña no es correcta.');
+    var rid = u.restauranteId;
+    conCandado_(function () {
+      for (var c in COLECCIONES) {
+        var enc = encabezado_(c); var sh = hoja_(c, enc); var n = enc.length; var last = sh.getLastRow();
+        var data = last > 1 ? sh.getRange(2, 1, last - 1, n).getValues() : [];
+        var keep = data.filter(function (r) { return r[0] !== '' && String(r[1]) !== rid; });
+        if (keep.length !== data.filter(function (r) { return r[0] !== ''; }).length) reescribe_(sh, n, keep, data.length, formatos_(c));
+      }
+      var ids = leeTabla_('usuarios').filter(function (x) { return x.restauranteId === rid; }).map(function (x) { return x.id; });
+      cierraSesiones_(ids);
+      var esDe = {}; ids.forEach(function (i) { esDe[i] = 1; });
+      var postsDe = {}; leeTabla_('publicaciones').forEach(function (x) { if (esDe[x.autorId]) postsDe[x.id] = 1; });
+      borraFilas_('comentarios', function (x) { return esDe[x.autorId] || postsDe[x.publicacionId]; });
+      borraFilas_('publicaciones', function (x) { return esDe[x.autorId]; });
+      borraFilas_('usuarios', function (x) { return esDe[x.id]; });
+      borraFilas_('restaurantes', function (x) { return x.id === rid; });
+    });
+    return {};
+  },
+
+  /* ----- Administrador: sin acceso a finanzas ----- */
+  adminResumen: function (p) {
+    var u = soloAdmin_(p);
+    var us = leeTabla_('usuarios');
+    var duenos = {}, cuantos = {}, asesores = [];
+    us.forEach(function (x) {
+      if (x.rol === 'dueno') duenos[x.restauranteId] = x;
+      if ((x.rol === 'dueno' || x.rol === 'staff') && x.activo) cuantos[x.restauranteId] = (cuantos[x.restauranteId] || 0) + 1;
+      if (x.rol === 'asesor') asesores.push({ id: x.id, nombre: x.nombre, email: x.email, activo: x.activo, creado: x.creado });
+    });
+    var rs = leeTabla_('restaurantes').filter(function (r) { return duenos[r.id]; }).map(function (r) {
+      var d = duenos[r.id]; var a = r.asesor || {};
+      return { id: r.id, nombre: r.nombre, ciudad: r.ciudad, giro: r.giro, plan: r.plan, creado: r.creado, solicitud: r.solicitud || '', suspendido: !!r.suspendido, funciones: funcionesDe_(r), asesorId: a.asesorId || '', usuarios: cuantos[r.id] || 0, dueno: { nombre: d.nombre, email: d.email } };
+    });
+    return { restaurantes: rs, asesores: asesores, funciones: FUNCIONES };
+  },
+  adminRestaurante: function (p) {
+    var u = soloAdmin_(p); var rid = String(p.restauranteId || ''); var out = null;
+    var asesor = null;
+    if (p.asesorId) { asesor = buscaPor_('usuarios', 'id', p.asesorId); if (!asesor || asesor.rol !== 'asesor' || !asesor.activo) throw err_('Ese asesor no existe o está desactivado.'); }
+    conCandado_(function () {
+      var n = actualiza_('restaurantes', function (r) { return r.id === rid; }, function (r) {
+        if (p.plan) {
+          r.plan = p.plan === 'acompanamiento' ? 'acompanamiento' : 'autogestion';
+          if (r.plan === 'acompanamiento') r.solicitud = '';
+        }
+        if (p.rechazarSolicitud) r.solicitud = '';
+        r.asesor = r.asesor || {};
+        if (r.plan !== 'acompanamiento') { r.asesor.asesorId = ''; r.asesor.nombre = ''; }
+        else if (p.asesorId !== undefined) { r.asesor.asesorId = asesor ? asesor.id : ''; r.asesor.nombre = asesor ? asesor.nombre : ''; }
+        if (p.funciones) { var f = {}; FUNCIONES.forEach(function (k) { f[k] = p.funciones[k] !== false; }); r.funciones = f; }
+        if (p.suspendido !== undefined) r.suspendido = !!p.suspendido;
+        out = r; return r;
+      });
+      if (!n) throw err_('No encontramos ese restaurante.');
+      // No se cierran las sesiones: cada acción revisa si la cuenta está suspendida y explica el motivo.
+    });
+    return {};
+  },
+  adminCrearAsesor: function (p) {
+    soloAdmin_(p);
+    var email = limpiaEmail_(p.email); validaPass_(p.pass);
+    if (!String(p.nombre || '').trim()) throw err_('Escribe el nombre del asesor.');
+    return conCandado_(function () {
+      if (buscaUsuario_(email)) throw err_('Ese correo ya tiene una cuenta en .Py México.');
+      var n = creaUsuario_(email, String(p.nombre).trim().slice(0, 60), String(p.pass), 'asesor', '');
+      return { asesor: { id: n.id, nombre: n.nombre, email: n.email, activo: true } };
+    });
+  },
+  adminAsesorActivo: function (p) {
+    soloAdmin_(p); var activo = !!p.activo;
+    conCandado_(function () {
+      var n = actualiza_('usuarios', function (r) { return r.id === p.userId && r.rol === 'asesor'; }, function (r) { r.activo = activo; return r; });
+      if (!n) throw err_('No encontramos a ese asesor.');
+      if (!activo) {
+        cierraSesiones_([p.userId]);
+        actualiza_('restaurantes', function (r) { return (r.asesor || {}).asesorId === p.userId; }, function (r) { r.asesor.asesorId = ''; r.asesor.nombre = ''; return r; });
+      }
+    });
+    return {};
+  },
+  adminPost: function (p) {
+    soloAdmin_(p);
+    conCandado_(function () {
+      if (p.accion === 'borrar') {
+        borraFilas_('comentarios', function (c) { return c.publicacionId === p.postId; });
+        borraFilas_('publicaciones', function (r) { return r.id === p.postId; });
+      } else {
+        actualiza_('publicaciones', function (r) { return r.id === p.postId; }, function (r) { r.oculta = p.accion === 'ocultar'; if (!r.oculta) r.denuncias = []; return r; });
+      }
     });
     return {};
   }
@@ -265,9 +389,9 @@ function hash_(pass, salt) {
   for (var i = 0; i < 300; i++) h = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, h + salt, Utilities.Charset.UTF_8));
   return h;
 }
-function creaUsuario_(email, nombre, pass, rol, rid) {
+function creaUsuario_(email, nombre, pass, rol, rid, aviso) {
   var salt = Utilities.getUuid();
-  var u = { id: Utilities.getUuid(), email: email, nombre: nombre, rol: rol, restauranteId: rid, hash: hash_(pass, salt), salt: salt, creado: new Date().toISOString(), activo: true };
+  var u = { id: Utilities.getUuid(), email: email, nombre: nombre, rol: rol, restauranteId: rid, hash: hash_(pass, salt), salt: salt, creado: new Date().toISOString(), activo: true, aviso: aviso || '' };
   agrega_('usuarios', [u]); return u;
 }
 function buscaUsuario_(email) { return buscaPor_('usuarios', 'email', email); }
@@ -290,15 +414,39 @@ function auth_(p) {
   var pu = publico_(u); cache.put('ses_' + t, JSON.stringify(pu), 21600); return pu;
 }
 function restauranteDe_(u, pedido) {
-  if (u.rol === 'asesor') { if (!pedido) throw err_('Elige un restaurante.'); return String(pedido); }
+  if (u.rol === 'admin') throw err_('La cuenta de administrador no tiene acceso a las finanzas de los restaurantes.');
+  if (u.rol === 'asesor') {
+    var R = pedido ? buscaPor_('restaurantes', 'id', String(pedido)) : null;
+    if (!R || !asignado_(R, u)) throw err_('Ese restaurante no está asignado a ti.');
+    return R.id;
+  }
   return u.restauranteId;
+}
+function asignado_(R, u) { return R.plan === 'acompanamiento' && (R.asesor || {}).asesorId === u.id; }
+function asesorPublico_(R) { var a = (R && R.asesor) || {}; return R && R.plan === 'acompanamiento' && a.asesorId ? { nombre: a.nombre || '', proxima: a.proxima || '' } : { nombre: '', proxima: a.proxima || '' }; }
+function funcionesDe_(R) { var f = (R && R.funciones) || {}; var o = {}; FUNCIONES.forEach(function (k) { o[k] = f[k] !== false; }); return o; }
+function restauranteActivo_(u) {
+  var R = buscaPor_('restaurantes', 'id', u.restauranteId);
+  if (!R) throw err_('No encontramos tu restaurante.', 'sesion');
+  if (R.suspendido) throw err_(MSG_SUSP, 'suspendida');
+  return R;
+}
+function comunidadOk_(u) {
+  if (u.rol !== 'dueno' && u.rol !== 'staff') return;
+  if (!funcionesDe_(restauranteActivo_(u)).comunidad) throw err_('La comunidad no está activa para tu restaurante.');
+}
+function soloAdmin_(p) { var u = auth_(p); if (u.rol !== 'admin') throw err_('Solo el administrador puede hacer esto.'); return u; }
+function cierraSesiones_(ids) {
+  if (!ids || !ids.length) return; var es = {}; ids.forEach(function (i) { es[i] = 1; });
+  var cache = CacheService.getScriptCache();
+  leeTabla_('sesiones').forEach(function (s) { if (es[s.usuarioId]) cache.remove('ses_' + s.token); });
+  borraFilas_('sesiones', function (s) { return es[s.usuarioId]; });
 }
 function guardaRestaurante_(rid, r) {
   actualiza_('restaurantes', function (x) { return x.id === rid; }, function (x) {
     if (r.nombre) x.nombre = String(r.nombre).slice(0, 80);
     if (r.ciudad != null) x.ciudad = String(r.ciudad).slice(0, 60);
     if (r.giro != null) x.giro = String(r.giro).slice(0, 60);
-    if (r.plan) x.plan = r.plan === 'acompanamiento' ? 'acompanamiento' : 'autogestion';
     if (r.datos) x.datos = r.datos;
     return x;
   });
@@ -319,6 +467,9 @@ function hoja_(nombre, encabezado) {
     sh.getRange(1, 1, 1, encabezado.length).setValues([encabezado]).setFontWeight('bold').setBackground('#143D34').setFontColor('#F4F1E8');
     sh.setFrozenRows(1);
     sh.getRange(2, 1, sh.getMaxRows() - 1, encabezado.length).setNumberFormat('@');
+  } else if (sh.getRange(1, 1, 1, encabezado.length).getValues()[0].join('|') !== encabezado.join('|')) {
+    // Se agregaron columnas nuevas: se actualiza el encabezado (los datos no se mueven)
+    sh.getRange(1, 1, 1, encabezado.length).setValues([encabezado]).setFontWeight('bold').setBackground('#143D34').setFontColor('#F4F1E8');
   }
   _hojas[nombre] = sh; return sh;
 }
@@ -438,9 +589,16 @@ function prepararHojas() {
   var h = libro_().getSheetByName('Hoja 1') || libro_().getSheetByName('Sheet1');
   if (h && libro_().getSheets().length > 1 && h.getLastRow() === 0) libro_().deleteSheet(h);
 }
-// Convierte una cuenta en asesor. Escribe el correo entre las comillas y ejecuta.
-function hacerAsesor() {
-  var correo = 'escribe.aqui@correo.com';
-  var n = actualiza_('usuarios', function (r) { return r.email === correo.toLowerCase(); }, function (r) { r.rol = 'asesor'; return r; });
-  Logger.log(n ? 'Listo: ' + correo + ' ahora es asesor. Que cierre sesión y vuelva a entrar.' : 'No encontré ese correo. Primero crea la cuenta desde la app.');
+// Crea la cuenta de ADMINISTRADOR. Llena los tres datos, guarda, elige "crearAdmin" y toca Ejecutar.
+// Después borra la contraseña de aquí y guarda otra vez.
+function crearAdmin() {
+  var NOMBRE = 'Administrador';
+  var CORREO = 'escribe.aqui@correo.com';
+  var CONTRASENA = '';
+  var email = limpiaEmail_(CORREO); validaPass_(CONTRASENA);
+  conCandado_(function () {
+    if (buscaUsuario_(email)) { Logger.log('Ya existe una cuenta con ' + email + '. Usa otro correo para el administrador.'); return; }
+    creaUsuario_(email, NOMBRE, CONTRASENA, 'admin', '');
+    Logger.log('Listo: ' + email + ' ya es administrador. Entra a la app con ese correo. Ahora borra la contraseña de este código y guarda.');
+  });
 }

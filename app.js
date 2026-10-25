@@ -341,6 +341,8 @@ const IC = {
   comunidad: 'M4 5h12v9H8l-4 3zM10 17h6l4 3V9h-2',
   asesor: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 3.6-7 8-7s8 3 8 7',
   clientes: 'M4 7h16v13H4zM9 7V4h6v3M4 12h16',
+  escudo: 'M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6zM9 12l2 2 4-4',
+  candado: 'M6 11h12v10H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3',
   config: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
   mas: 'M5 12h.01M12 12h.01M19 12h.01',
   campana: 'M6 16v-5a6 6 0 1 1 12 0v5l2 2H4zM10 21h4',
@@ -397,13 +399,16 @@ function blankData(r) {
     config: { saldoInicial: 0, diasCompromisos: 7, umbralVerde: 20000, impuestoPct: 4, cuotasPct: 12, plan: 'autogestion', fondoCaja: 1500 },
     sales: [], products: [], suppliers: [], purchases: [], closings: [], employees: [], payrolls: [],
     recurring: [], payables: [], reserve: { meta: 0, movs: [] }, cash: [], posts: [], promos: [], cortes: [], msgs: [],
-    advisor: { nombre: '', proxima: null }
+    advisor: { nombre: '', proxima: null },
+    funciones: { simulador: true, promos: true, financiamiento: true, comunidad: true, equipo: true }, solicitud: ''
   };
 }
 const ROL = () => (USER && USER.rol) || 'dueno';
 const isOwner = () => ROL() === 'dueno';
 const isStaff = () => ROL() === 'staff';
 const isAsesor = () => ROL() === 'asesor';
+const isAdmin = () => ROL() === 'admin';
+const noRest = () => isAdmin() || (isAsesor() && !VIEWING);
 
 /* ============ Colecciones (iguales a las hojas del Sheets) ============ */
 const COLS = { ventas: 'sales', productos: 'products', proveedores: 'suppliers', compras: 'purchases', cierres: 'closings', empleados: 'employees', nominas: 'payrolls', gastos_fijos: 'recurring', pagos: 'payables', reserva: 'reserve.movs', movimientos: 'cash', promociones: 'promos', cortes: 'cortes', mensajes: 'msgs' };
@@ -419,6 +424,7 @@ function buildS(R, cols) {
   Object.assign(D.config, d.config || {}); D.config.plan = R.plan || D.config.plan;
   D.reserve.meta = Number(d.reservaMeta) || 0;
   D.advisor = Object.assign({ nombre: '', proxima: null }, R.asesor || {});
+  Object.assign(D.funciones, R.funciones || {}); D.solicitud = R.solicitud || '';
   for (const c in COLS) colSet(D, c, (cols && cols[c]) || []);
   return D;
 }
@@ -431,10 +437,10 @@ async function api(action, data) {
   try { r = await fetch(API, { method: 'POST', body, redirect: 'follow' }); }
   catch (e) { const er = new Error('No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.'); er.code = 'red'; throw er; }
   let j; try { j = await r.json(); } catch (e) { const er = new Error('El servidor respondió algo inesperado. Revisa que el enlace del Apps Script sea el correcto.'); er.code = 'red'; throw er; }
-  if (!j.ok) { const er = new Error(j.error || 'Algo salió mal en el servidor.'); er.code = j.code; if (j.code === 'sesion') onSessionLost(); throw er; }
+  if (!j.ok) { const er = new Error(j.error || 'Algo salió mal en el servidor.'); er.code = j.code; if (j.code === 'sesion' || j.code === 'suspendida') onSessionLost(j.code === 'suspendida' ? j.error : null); throw er; }
   return j;
 }
-function onSessionLost() { SESSION = null; USER = null; S = null; LS.del(K_SES); ui.loginError = 'Tu sesión terminó. Vuelve a entrar.'; setTimeout(render, 0); }
+function onSessionLost(msg) { SESSION = null; USER = null; S = null; MODE = null; BOOTING = null; LS.del(K_SES); ui.loginTab = 'entrar'; ui.loginError = msg || 'Tu sesión terminó. Vuelve a entrar.'; setTimeout(render, 0); }
 
 /* Sincronización: cada cambio se guarda en una "bandeja de salida" y se envía al Sheets */
 let SNAP = null, SENDING = null, syncTimer = null, SYNC = 'ok';
@@ -511,16 +517,23 @@ const NAV_OWNER = [
 ];
 const NAV_STAFF = [['Tu turno', [['ventas', 'Ventas y caja'], ['perecederos', 'Perecederos']]], ['Apoyo', [['comunidad', 'Comunidad']]], ['Cuenta', [['config', 'Mi cuenta']]]];
 const NAV_ASESOR = [['Asesoría', [['clientes', 'Mis clientes']]], ['Apoyo', [['comunidad', 'Comunidad']]], ['Cuenta', [['config', 'Mi cuenta']]]];
-const TITLES = { inicio: 'Inicio', ventas: 'Ventas y caja', pagos: 'Pagos y gastos', reserva: 'Fondo de reserva', simulador: '¿Qué pasa si…?', perecederos: 'Perecederos', nomina: 'Empleados y nómina', impuestos: 'Impuestos', promos: 'Promociones', financiamiento: 'Financiamiento', reportes: 'Reportes', comunidad: 'Comunidad', asesor: 'Mi asesor', config: 'Configuración', clientes: 'Mis clientes' };
-const ICON_OF = { inicio: 'inicio', ventas: 'ventas', pagos: 'pagos', reserva: 'reserva', simulador: 'simulador', perecederos: 'perecederos', nomina: 'nomina', impuestos: 'impuestos', promos: 'promos', financiamiento: 'financiamiento', reportes: 'reportes', comunidad: 'comunidad', asesor: 'asesor', config: 'config', clientes: 'clientes' };
+const NAV_ADMIN = [['Administración', [['admin', 'Restaurantes'], ['asesores', 'Asesores']]], ['Apoyo', [['comunidad', 'Comunidad']]], ['Cuenta', [['config', 'Mi cuenta']]]];
+const VIEW_FN = { simulador: 'simulador', promos: 'promos', financiamiento: 'financiamiento', comunidad: 'comunidad' };
+const TITLES = { inicio: 'Inicio', ventas: 'Ventas y caja', pagos: 'Pagos y gastos', reserva: 'Fondo de reserva', simulador: '¿Qué pasa si…?', perecederos: 'Perecederos', nomina: 'Empleados y nómina', impuestos: 'Impuestos', promos: 'Promociones', financiamiento: 'Financiamiento', reportes: 'Reportes', comunidad: 'Comunidad', asesor: 'Mi asesor', config: 'Configuración', clientes: 'Mis clientes', admin: 'Restaurantes', asesores: 'Asesores' };
+const ICON_OF = { inicio: 'inicio', ventas: 'ventas', pagos: 'pagos', reserva: 'reserva', simulador: 'simulador', perecederos: 'perecederos', nomina: 'nomina', impuestos: 'impuestos', promos: 'promos', financiamiento: 'financiamiento', reportes: 'reportes', comunidad: 'comunidad', asesor: 'asesor', config: 'config', clientes: 'clientes', admin: 'clientes', asesores: 'asesor' };
 function navGroups() {
-  if (isAsesor()) return VIEWING ? [['Asesoría', [['clientes', 'Mis clientes']]]].concat(NAV_OWNER.slice(0, 3)).concat([['Apoyo', [['asesor', 'Mensajes'], ['comunidad', 'Comunidad']]]]) : NAV_ASESOR;
-  if (isStaff()) return NAV_STAFF;
-  return NAV_OWNER;
+  let g;
+  if (isAdmin()) return NAV_ADMIN;
+  if (isAsesor()) g = VIEWING ? [['Asesoría', [['clientes', 'Mis clientes']]]].concat(NAV_OWNER.slice(0, 3)).concat([['Apoyo', [['asesor', 'Mensajes']]]]) : NAV_ASESOR;
+  else if (isStaff()) g = NAV_STAFF;
+  else g = NAV_OWNER;
+  const F = S && S.funciones;
+  if (!F) return g;
+  return g.map(([n, items]) => [n, items.filter(([k]) => !VIEW_FN[k] || F[VIEW_FN[k]] !== false)]).filter(x => x[1].length);
 }
 const allowedViews = () => navGroups().flatMap(g => g[1].map(x => x[0]));
 function bottomItems() {
-  const pref = isAsesor() && !VIEWING ? ['clientes', 'comunidad', 'config'] : isStaff() ? ['ventas', 'perecederos', 'comunidad'] : VIEWING ? ['inicio', 'pagos', 'asesor'] : ['inicio', 'ventas', 'pagos', 'comunidad'];
+  const pref = isAdmin() ? ['admin', 'asesores', 'comunidad'] : isAsesor() && !VIEWING ? ['clientes', 'comunidad', 'config'] : isStaff() ? ['ventas', 'perecederos', 'comunidad'] : VIEWING ? ['inicio', 'pagos', 'asesor'] : ['inicio', 'ventas', 'pagos', 'comunidad'];
   return pref.filter(v => allowedViews().includes(v));
 }
 function applyTheme() {
@@ -536,15 +549,15 @@ const firstName = n => String(n || '').trim().split(/\s+/)[0] || '';
 function render() {
   const app = document.getElementById('app'); applyTheme();
   if (BOOTING) { app.innerHTML = `<div class="login-main" style="min-height:100vh"><div class="empty">${ill('canasta')}<b>${h(BOOTING)}</b><p>Esto toma unos segundos.</p></div></div>`; return; }
-  if (!USER || !S && !(isAsesor() && !VIEWING)) { app.innerHTML = vLogin(); return; }
+  if (!USER || (!S && !noRest())) { app.innerHTML = vLogin(); return; }
   if (S && !READONLY && !isStaff()) ensureGenerated();
   let v = ui.view; if (!allowedViews().includes(v)) v = ui.view = allowedViews()[0];
-  const views = { inicio: vInicio, ventas: vVentas, pagos: vPagos, reserva: vReserva, simulador: vSimulador, perecederos: vPerecederos, nomina: vNomina, impuestos: vImpuestos, promos: vPromos, financiamiento: vFinanciamiento, reportes: vReportes, comunidad: vComunidad, asesor: vAsesor, config: vConfig, clientes: vClientes };
+  const views = { inicio: vInicio, ventas: vVentas, pagos: vPagos, reserva: vReserva, simulador: vSimulador, perecederos: vPerecederos, nomina: vNomina, impuestos: vImpuestos, promos: vPromos, financiamiento: vFinanciamiento, reportes: vReportes, comunidad: vComunidad, asesor: vAsesor, config: vConfig, clientes: vClientes, admin: vAdmin, asesores: vAsesores };
   const nAv = S && !isStaff() && !(isAsesor() && !VIEWING) ? avisos() : [];
   const vencidos = S && !isStaff() ? pendientes().filter(p => p.vence < today()).length : 0;
   const nav = navGroups().map(([g, items]) => `<div class="navgroup"><span>${g}</span>${items.map(([k, l]) => `<button class="navbtn" data-a="nav" data-v="${k}" ${k === v ? 'aria-current="page"' : ''}>${icon(ICON_OF[k])}${l}${k === 'pagos' && vencidos ? `<span class="count" title="Pagos vencidos">${vencidos}</span>` : ''}</button>`).join('')}</div>`).join('');
   const restName = VIEWING ? VIEWING.nombre : S ? S.restaurant.nombre : 'Equipo .Py México';
-  const planTxt = isAsesor() && !VIEWING ? 'Asesor del equipo' : isStaff() ? 'Encargado' : S && S.config.plan === 'acompanamiento' ? 'Plan Acompañamiento' : 'Plan Autogestión';
+  const planTxt = isAdmin() ? 'Administrador' : isAsesor() && !VIEWING ? 'Asesor del equipo' : isStaff() ? 'Encargado' : S && S.config.plan === 'acompanamiento' ? 'Plan Acompañamiento' : 'Plan Autogestión';
   const syncEl = MODE === 'cloud' ? `<span class="sync ${SYNC === 'ok' ? '' : SYNC === 'saving' ? 'saving' : 'off'}" data-sync><i></i><span>${SYNC === 'ok' ? 'Guardado en la nube' : 'Guardando…'}</span></span>` : `<span class="sync off" data-sync><i></i><span>${LOCAL && LOCAL.account && LOCAL.account.demo ? 'Demostración en este equipo' : 'Guardado en este equipo'}</span></span>`;
   const sub = v === 'inicio' && !READONLY ? '' : `${h(restName)}, ${fdl(today())}`;
   const title = v === 'inicio' ? (READONLY ? 'Así va ' + h(restName) : `${saludo()}, ${h(firstName(USER.nombre))}`) : TITLES[v];
@@ -558,6 +571,7 @@ function render() {
       <div class="rest-card"><span class="mono">${h(initials(restName))}</span><div><b>${h(restName)}</b><span>${planTxt}</span></div></div>
       <nav class="nav" aria-label="Secciones">${nav}</nav>
       <div class="side-foot">${syncEl}</div>
+      <a class="side-link" href="privacidad.html" target="_blank" rel="noopener">Aviso de privacidad</a>
     </aside>
     <main class="${READONLY ? 'readonly' : ''}">
       ${banner}
@@ -581,7 +595,7 @@ function decorateTables() {
     t.querySelectorAll('tbody tr').forEach(tr => [...tr.children].forEach((td, i) => { if (hs[i]) td.dataset.label = hs[i]; if (td.querySelector('.acts')) td.classList.add('acts-cell'); }));
   });
 }
-function go(v) { ui.view = v; closeModal(); saveUI(); render(); window.scrollTo(0, 0); if (v === 'comunidad' && MODE === 'cloud') loadFeed(); if (v === 'asesor' && MODE === 'cloud') loadMsgs(); if (v === 'clientes') loadClientes(); if (v === 'config' && MODE === 'cloud' && isOwner()) loadTeam(); }
+function go(v) { ui.view = v; closeModal(); saveUI(); render(); window.scrollTo(0, 0); if (v === 'comunidad' && MODE === 'cloud') loadFeed(); if (v === 'asesor' && MODE === 'cloud') loadMsgs(); if (v === 'clientes') loadClientes(); if (v === 'config' && MODE === 'cloud' && isOwner()) loadTeam(); if ((v === 'admin' || v === 'asesores') && MODE === 'cloud') loadAdmin(); }
 function commit(msg) {
   if (READONLY) { render(); toast('Como asesor solo puedes revisar y escribir mensajes.'); return; }
   if (MODE === 'local') LS.set(K_LOCAL, LOCAL);
@@ -625,9 +639,11 @@ function vLogin() {
       <label>Nombre del restaurante<input name="rest" required></label>
       <label>Ciudad<input name="ciudad" placeholder="Ej. Guadalajara, Jal." required></label>
       <label>¿Cuánto dinero tienes hoy entre banco y caja?<input name="saldo" type="number" min="0" step="1" required inputmode="numeric"></label>
-      <label>Plan<select name="plan"><option value="autogestion">Autogestión: tú llevas el control</option><option value="acompanamiento">Acompañamiento: con asesor</option></select></label>
+      <label>Plan que te interesa<select name="plan"><option value="autogestion">Autogestión: tú llevas el control</option><option value="acompanamiento">Acompañamiento: con asesor</option></select></label>
+      ${API ? '<p class="hint">Empiezas en Autogestión. Si eliges Acompañamiento, el equipo te contacta y lo activa al confirmar tu pago.</p>' : ''}
+      <label class="check"><input type="checkbox" name="aviso" required><span>Leí y acepto el <a href="privacidad.html" target="_blank" rel="noopener">aviso de privacidad</a>.</span></label>
       <button class="btn" type="submit">Crear cuenta</button>
-      ${API ? '<p class="hint">Tus números solo los ven tú, tu equipo y, si eliges Acompañamiento, tu asesor.</p>' : '<p class="hint">Esta copia de la app no está conectada a la nube: la cuenta se guarda solo en este equipo.</p>'}
+      ${API ? '' : '<p class="hint">Esta copia de la app no está conectada a la nube: la cuenta se guarda solo en este equipo.</p>'}
     </form>
     <p class="switch">¿Ya tienes cuenta? <button class="linkbtn" data-a="loginTab" data-v="entrar">Entra aquí</button></p>`;
   else form = ui.recStep ? `<h2>Escribe el código</h2><p class="muted">Te enviamos un código de 6 números a ${h(ui.recEmail)}. Revisa también tu correo no deseado.</p>
@@ -654,6 +670,7 @@ function vLogin() {
       ${form}
       <div class="divider">o</div>
       <button class="btn sec" data-a="demo">Ver la demostración de una taquería</button>
+      <p class="switch"><a href="privacidad.html" target="_blank" rel="noopener">Aviso de privacidad</a><br><span class="hint">Proyecto académico de demostración</span></p>
     </div></section>
   </div>`;
 }
@@ -1486,6 +1503,102 @@ function finOut() {
     <div class="row mt"><button class="btn" data-a="solicitar">Solicitar con un aliado</button></div>`;
 }
 
+/* ============ Administrador (sin acceso a finanzas) ============ */
+let ADMIN = null;
+const FN_LBL = {
+  simulador: ['Simulador', 'Probar decisiones antes de tomarlas'],
+  promos: ['Promociones', 'Detectar el día flojo y medir promociones'],
+  financiamiento: ['Financiamiento', 'Perfil de crédito y simulador de préstamo'],
+  comunidad: ['Comunidad', 'Publicar y comentar con otros dueños'],
+  equipo: ['Accesos para el equipo', 'Dar acceso a encargados o cajeros']
+};
+let adminLoading = false;
+async function loadAdmin() {
+  if (MODE !== 'cloud' || !isAdmin() || adminLoading) return; adminLoading = true;
+  try { ADMIN = await api('adminResumen'); if (['admin', 'asesores'].includes(ui.view) && !document.getElementById('overlay')) render(); }
+  catch (e) { toast(e.message); }
+  finally { adminLoading = false; }
+}
+const asesorDe = id => (ADMIN && ADMIN.asesores.find(a => a.id === id)) || null;
+const clientesDe = id => ADMIN ? ADMIN.restaurantes.filter(r => r.plan === 'acompanamiento' && r.asesorId === id) : [];
+function vAdmin() {
+  if (!ADMIN) return `<section class="panel">${empty('equipo', 'Cargando restaurantes…', '')}</section>`;
+  const R = ADMIN.restaurantes, A = ADMIN.asesores.filter(a => a.activo);
+  const sol = R.filter(r => r.solicitud && r.plan !== 'acompanamiento');
+  const acomp = R.filter(r => r.plan === 'acompanamiento'), sinAs = acomp.filter(r => !r.asesorId);
+  const f = ui.adminFiltro || 'todos';
+  const filtros = [['todos', 'Todos', R.length], ['acomp', 'Acompañamiento', acomp.length], ['auto', 'Autogestión', R.filter(r => r.plan !== 'acompanamiento').length], ['sinasesor', 'Sin asesor', sinAs.length], ['susp', 'Suspendidos', R.filter(r => r.suspendido).length]];
+  const pasa = r => f === 'acomp' ? r.plan === 'acompanamiento' : f === 'auto' ? r.plan !== 'acompanamiento' : f === 'sinasesor' ? r.plan === 'acompanamiento' && !r.asesorId : f === 'susp' ? r.suspendido : true;
+  const lista = R.filter(pasa).sort((a, b) => String(b.creado).localeCompare(String(a.creado)));
+  const off = r => Object.entries(r.funciones || {}).filter(([, v]) => v === false).map(([k]) => FN_LBL[k] ? FN_LBL[k][0] : k);
+  return `
+  <p class="aviso info">${icon('candado')} Desde aquí activas planes y funciones y asignas asesores. Esta cuenta no puede abrir las finanzas de ningún restaurante.</p>
+  <div class="grid3" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+    <section class="panel dato"><div class="label">Restaurantes</div><div class="value">${R.length}</div><div class="note">${R.filter(r => r.suspendido).length ? R.filter(r => r.suspendido).length + ' suspendidos' : 'Todos activos'}</div></section>
+    <section class="panel dato"><div class="label">Con Acompañamiento</div><div class="value">${acomp.length}</div><div class="note">${sinAs.length ? `<span class="down">${sinAs.length} sin asesor</span>` : 'Todos con asesor'}</div></section>
+    <section class="panel dato"><div class="label">Solicitudes por atender</div><div class="value ${sol.length ? 'down' : ''}">${sol.length}</div><div class="note">Quieren Acompañamiento</div></section>
+    <section class="panel dato"><div class="label">Asesores activos</div><div class="value">${A.length}</div><div class="note"><button class="linkbtn" data-a="nav" data-v="asesores">Ver asesores</button></div></section>
+  </div>
+  ${sol.length ? `<section class="panel"><div class="ph"><div><h2>Solicitudes de Acompañamiento</h2><p>Cuando confirmes el pago, activa el plan y asígnale un asesor.</p></div></div>
+    <div class="tablewrap"><table class="t"><thead><tr><th>Restaurante</th><th>Dueño</th><th>Alta</th><th></th></tr></thead><tbody>
+    ${sol.map(r => `<tr><td>${h(r.nombre)}<br><span class="hint">${h(r.ciudad || '')}</span></td><td>${h(r.dueno.nombre)}<br><span class="hint">${h(r.dueno.email)}</span></td><td>${r.creado ? fd(String(r.creado).slice(0, 10)) : '—'}</td><td class="right"><div class="acts"><button class="btn sm" data-a="adminEdit" data-id="${r.id}" data-plan="acompanamiento">Activar y asignar asesor</button><button class="btn sec sm" data-a="rechazarSolicitud" data-id="${r.id}">Rechazar</button></div></td></tr>`).join('')}
+    </tbody></table></div></section>` : ''}
+  <section class="panel"><div class="ph"><div><h2>Restaurantes</h2><p>Plan, asesor, funciones y estado de cada cuenta.</p></div><button class="btn sec sm" data-a="refreshAdmin">Actualizar</button></div>
+    <div class="row" style="margin-bottom:12px"><div class="tabs" role="tablist" style="margin:0">${filtros.map(([k, l, n]) => `<button class="tab" role="tab" aria-selected="${f === k}" data-a="adminFiltro" data-v="${k}">${l} (${n})</button>`).join('')}</div><span class="spacer"></span><input type="search" placeholder="Buscar restaurante o dueño" data-adminsearch style="max-width:260px" aria-label="Buscar"></div>
+    ${lista.length ? `<div class="tablewrap"><table class="t"><thead><tr><th>Restaurante</th><th>Dueño</th><th>Plan</th><th>Asesor</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${lista.map(r => { const a = asesorDe(r.asesorId); const o = off(r); return `<tr data-text="${h((r.nombre + ' ' + r.ciudad + ' ' + r.dueno.nombre + ' ' + r.dueno.email).toLowerCase())}">
+      <td>${h(r.nombre)}<br><span class="hint">${h(r.ciudad || '')}${r.creado ? ', desde ' + fds(String(r.creado).slice(0, 10)) : ''}</span></td>
+      <td>${h(r.dueno.nombre)}<br><span class="hint">${h(r.dueno.email)}</span></td>
+      <td>${r.plan === 'acompanamiento' ? '<span class="tag acc">Acompañamiento</span>' : '<span class="tag">Autogestión</span>'}${r.solicitud && r.plan !== 'acompanamiento' ? '<br><span class="tag warn">Pidió Acompañamiento</span>' : ''}${o.length ? `<br><span class="hint">Apagado: ${h(o.join(', '))}</span>` : ''}</td>
+      <td>${r.plan !== 'acompanamiento' ? '<span class="hint">No aplica</span>' : a ? h(a.nombre) : '<span class="tag warn">Sin asesor</span>'}</td>
+      <td>${r.suspendido ? '<span class="tag bad">Suspendido</span>' : '<span class="tag ok">Activo</span>'}</td>
+      <td class="right"><div class="acts"><button class="btn sec sm" data-a="adminEdit" data-id="${r.id}">Administrar</button></div></td></tr>`; }).join('')}
+    </tbody></table></div>` : empty('equipo', f === 'todos' ? 'Todavía no hay restaurantes' : 'No hay restaurantes en este filtro', f === 'todos' ? 'Aparecerán aquí cuando alguien cree su cuenta.' : '')}
+  </section>`;
+}
+function openAdminModal(rid, planPre) {
+  const r = ADMIN && ADMIN.restaurantes.find(x => x.id === rid); if (!r) return;
+  const plan = planPre || r.plan; const act = ADMIN.asesores.filter(a => a.activo);
+  openModal(`<h2>${h(r.nombre)}</h2><p class="muted">${h(r.dueno.nombre)}, ${h(r.dueno.email)}${r.ciudad ? ', ' + h(r.ciudad) : ''}</p>
+  <form class="stack mt" data-f="adminRest" data-id="${r.id}">
+    <fieldset><legend>Plan</legend>
+      ${[['autogestion', 'Autogestión', 'El dueño usa la app por su cuenta.'], ['acompanamiento', 'Acompañamiento', 'Activa cuando confirmes el pago. Incluye asesor.']].map(([k, l, d]) => `<label class="check"><input type="radio" name="plan" value="${k}" ${plan === k ? 'checked' : ''}><span><b>${l}</b><br><span class="muted">${d}</span></span></label>`).join('')}
+    </fieldset>
+    <fieldset><legend>Asesor asignado</legend>
+      <select name="asesorId" ${plan !== 'acompanamiento' ? 'disabled' : ''}><option value="">Sin asignar</option>${act.map(a => `<option value="${a.id}" ${r.asesorId === a.id ? 'selected' : ''}>${h(a.nombre)} (${clientesDe(a.id).length} restaurantes)</option>`).join('')}</select>
+      <p class="hint mt">${act.length ? 'Solo aplica con Acompañamiento. El asesor podrá ver los números de este restaurante, sin cambiarlos.' : 'Todavía no hay asesores. Créalos en la sección Asesores.'}</p>
+    </fieldset>
+    <fieldset><legend>Funciones activas</legend>
+      ${(ADMIN.funciones || Object.keys(FN_LBL)).map(k => `<label class="check"><input type="checkbox" name="fn_${k}" ${r.funciones[k] !== false ? 'checked' : ''}><span><b>${FN_LBL[k] ? FN_LBL[k][0] : k}</b><br><span class="muted">${FN_LBL[k] ? FN_LBL[k][1] : ''}</span></span></label>`).join('')}
+    </fieldset>
+    <fieldset><legend>Estado de la cuenta</legend>
+      <label class="check"><input type="radio" name="estado" value="activo" ${!r.suspendido ? 'checked' : ''}><span><b>Activa</b></span></label>
+      <label class="check"><input type="radio" name="estado" value="suspendido" ${r.suspendido ? 'checked' : ''}><span><b>Suspendida</b><br><span class="muted">Nadie del restaurante puede entrar. Sus datos se conservan.</span></span></label>
+    </fieldset>
+    <div class="actions"><button type="button" class="btn sec" data-a="close">Cancelar</button><button class="btn" type="submit">Guardar cambios</button></div>
+  </form>`);
+}
+function vAsesores() {
+  if (!ADMIN) return `<section class="panel">${empty('equipo', 'Cargando asesores…', '')}</section>`;
+  const A = ADMIN.asesores.slice().sort((a, b) => (b.activo - a.activo) || a.nombre.localeCompare(b.nombre));
+  return `
+  <div class="g75">
+    <section class="panel"><div class="ph"><div><h2>Asesores del equipo</h2><p>Cada asesor solo ve los restaurantes que tú le asignas, y solo mientras tengan Acompañamiento.</p></div></div>
+      ${A.length ? `<div class="tablewrap"><table class="t"><thead><tr><th>Asesor</th><th>Restaurantes asignados</th><th>Estado</th><th></th></tr></thead><tbody>
+      ${A.map(a => { const cs = clientesDe(a.id); return `<tr><td>${h(a.nombre)}<br><span class="hint">${h(a.email)}</span></td><td>${cs.length ? h(cs.map(c => c.nombre).join(', ')) : '<span class="hint">Ninguno</span>'}</td><td>${a.activo ? '<span class="tag ok">Activo</span>' : '<span class="tag">Desactivado</span>'}</td><td class="right"><div class="acts">${a.activo ? `<button class="btn danger sm" data-a="adminAsesorToggle" data-id="${a.id}" data-v="0">Desactivar</button>` : `<button class="btn sec sm" data-a="adminAsesorToggle" data-id="${a.id}" data-v="1">Reactivar</button>`}</div></td></tr>`; }).join('')}
+      </tbody></table></div>` : empty('equipo', 'Todavía no hay asesores', 'Crea el primero con el formulario.')}
+    </section>
+    <section class="panel"><div class="ph"><div><h2>Crear asesor</h2><p>Pásale su correo y contraseña; luego puede cambiarla con “Olvidé mi contraseña”.</p></div></div>
+      <form class="fields" data-f="adminAsesor">
+        <label class="wide">Nombre<input name="nombre" required></label>
+        <label class="wide">Correo<input name="email" type="email" required></label>
+        <label class="wide">Contraseña para entrar<input name="pass" minlength="6" required></label>
+        <div class="form-actions"><button class="btn" type="submit">Crear asesor</button></div>
+      </form>
+    </section>
+  </div>`;
+}
+
 /* ============ Comunidad ============ */
 function feedPosts() {
   if (MODE === 'cloud') return FEED || [];
@@ -1526,7 +1639,7 @@ function vComunidad() {
         <div class="post-actions">
           <button data-a="util" data-id="${p.id}" aria-pressed="${!!p.miUtil}">${icon('sirvio')}Me sirvió${p.utiles ? ' (' + p.utiles + ')' : ''}</button>
           <button data-a="toggleCom" data-id="${p.id}" aria-pressed="${!!ui.open[p.id]}">${icon('coment')}${p.comentarios.length ? p.comentarios.length + ' comentarios' : 'Comentar'}</button>
-          ${p.mio ? '' : `<button data-a="report" data-id="${p.id}">${icon('bandera')}Reportar</button>`}
+          ${isAdmin() ? (p.oculta ? `<span class="tag bad">Oculta${p.denuncias ? ', ' + p.denuncias + ' reportes' : ''}</span><button data-a="modPost" data-v="restaurar" data-id="${p.id}">Volver a mostrar</button><button data-a="modPost" data-v="borrar" data-id="${p.id}">Borrar</button>` : `${p.denuncias ? `<span class="tag warn">${p.denuncias} reportes</span>` : ''}<button data-a="modPost" data-v="ocultar" data-id="${p.id}">Ocultar</button>`) : p.mio ? '' : `<button data-a="report" data-id="${p.id}">${icon('bandera')}Reportar</button>`}
         </div>
         ${ui.open[p.id] ? `<div class="comments">
           ${p.comentarios.map(c => `<div class="comment"><span class="avatar">${initials(c.autor)}</span><div><div class="who"><b>${h(c.autor)}</b>, ${h(c.restaurante)}, ${ago(String(c.fecha).slice(0, 10))}</div><div>${h(c.texto)}</div></div></div>`).join('') || '<p class="hint">Sé el primero en comentar.</p>'}
@@ -1548,6 +1661,12 @@ async function loadMsgs(quiet) {
     if (ui.view === 'asesor' && changed && !typingIn('main')) render();
   } catch (e) { if (!quiet) toast(e.message); }
 }
+function planCTA() {
+  if (MODE !== 'cloud') return '<button class="btn" data-a="setPlan" data-v="acompanamiento">Cambiar a Acompañamiento</button>';
+  if (S.config.plan === 'acompanamiento') return '<span class="tag ok">Tienes el plan Acompañamiento</span>';
+  if (S.solicitud) return '<div class="row"><span class="tag warn">Solicitud enviada</span><span class="hint">El equipo te contactará para confirmar el pago y asignarte un asesor.</span><button class="linkbtn" data-a="solicitarPlan" data-v="cancelar">Cancelar solicitud</button></div>';
+  return '<div class="row"><button class="btn" data-a="solicitarPlan">Solicitar Acompañamiento</button><span class="hint">El equipo te contacta y lo activa al confirmar tu pago.</span></div>';
+}
 function vAsesor() {
   const asesorView = isAsesor() && VIEWING;
   if (!asesorView && S.config.plan !== 'acompanamiento' && !S.msgs.length) return `
@@ -1561,7 +1680,7 @@ function vAsesor() {
       <tr><td>Acceso prioritario a financiamiento</td><td>No</td><td>Sí</td></tr>
       <tr><td><b>Precio</b></td><td>Desde $349 al mes</td><td>Desde $890 al mes</td></tr>
     </tbody></table>
-    ${isOwner() ? '<div class="row mt"><button class="btn" data-a="setPlan" data-v="acompanamiento">Cambiar a Acompañamiento</button></div>' : ''}
+    ${isOwner() ? `<div class="mt">${planCTA()}</div>` : ''}
   </section>`;
   const A = S.advisor || {}; const prox = A.proxima ? String(A.proxima).split('T') : null;
   const meDe = asesorView ? 'asesor' : 'dueno';
@@ -1586,13 +1705,11 @@ async function loadClientes() {
 }
 function vClientes() {
   if (CLIENTES === null) return `<section class="panel">${empty('equipo', 'Cargando tus clientes…', '')}</section>`;
-  const acomp = CLIENTES.filter(c => c.plan === 'acompanamiento'), otros = CLIENTES.filter(c => c.plan !== 'acompanamiento');
   const card = c => `<tr><td>${h(c.nombre)}<br><span class="hint">${h(c.ciudad || '')}</span></td><td>${c.ultimo ? `${c.ultimo.de === 'dueno' ? '<span class="tag warn">Te escribió</span> ' : ''}<span class="small">${h(String(c.ultimo.texto).slice(0, 70))}${String(c.ultimo.texto).length > 70 ? '…' : ''}</span><br><span class="hint">${ago(String(c.ultimo.fecha).slice(0, 10))}</span>` : '<span class="hint">Sin mensajes</span>'}</td><td>${c.proxima ? fds(String(c.proxima).slice(0, 10)) : '—'}</td><td class="right"><div class="acts"><button class="btn sm" data-a="openCliente" data-id="${c.id}">Abrir</button></div></td></tr>`;
   return `
-  <section class="panel"><div class="ph"><div><h2>Restaurantes con Acompañamiento</h2><p>Ábrelos para revisar sus números, ver sus alertas y escribirles.</p></div><button class="btn sec sm" data-a="refreshClientes">Actualizar</button></div>
-    ${acomp.length ? `<div class="tablewrap"><table class="t"><thead><tr><th>Restaurante</th><th>Último mensaje</th><th>Próxima sesión</th><th></th></tr></thead><tbody>${acomp.map(card).join('')}</tbody></table></div>` : empty('equipo', 'Todavía no hay restaurantes en Acompañamiento', 'Cuando un dueño elija ese plan, aparecerá aquí.')}
-  </section>
-  ${otros.length ? `<section class="panel"><div class="ph"><div><h2>Con Autogestión</h2><p>No tienen asesor, pero puedes revisarlos si te lo piden.</p></div></div><div class="tablewrap"><table class="t"><thead><tr><th>Restaurante</th><th>Último mensaje</th><th>Próxima sesión</th><th></th></tr></thead><tbody>${otros.map(card).join('')}</tbody></table></div></section>` : ''}`;
+  <section class="panel"><div class="ph"><div><h2>Tus restaurantes</h2><p>Los que el administrador te asignó. Ábrelos para revisar sus números, ver sus alertas y escribirles.</p></div><button class="btn sec sm" data-a="refreshClientes">Actualizar</button></div>
+    ${CLIENTES.length ? `<div class="tablewrap"><table class="t"><thead><tr><th>Restaurante</th><th>Último mensaje</th><th>Próxima sesión</th><th></th></tr></thead><tbody>${CLIENTES.map(card).join('')}</tbody></table></div>` : empty('equipo', 'Todavía no tienes restaurantes asignados', 'Cuando el administrador te asigne uno con plan Acompañamiento, aparecerá aquí.')}
+  </section>`;
 }
 
 /* ============ Configuración ============ */
@@ -1605,14 +1722,17 @@ function vConfig() {
   const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
   const cuenta = `<section class="panel"><div class="ph"><h2>Tu cuenta</h2></div>
     <p><b>${h(USER.nombre)}</b><br><span class="muted">${h(USER.email || '')}</span></p>
-    <p class="hint mt">${isAsesor() ? 'Eres asesor del equipo .Py México.' : isStaff() ? 'Eres encargado: puedes registrar ventas, cortes, compras y cierres.' : 'Eres el dueño de este restaurante.'} ${MODE === 'cloud' ? 'Tus datos se guardan en la nube.' : 'Tus datos se guardan solo en este equipo.'}</p>
+    <p class="hint mt">${isAdmin() ? 'Eres administrador: activas planes y funciones y asignas asesores. No puedes ver las finanzas de los restaurantes.' : isAsesor() ? 'Eres asesor del equipo .Py México: solo ves los restaurantes que te asignaron.' : isStaff() ? 'Eres encargado: puedes registrar ventas, cortes, compras y cierres.' : 'Eres el dueño de este restaurante.'} ${MODE === 'cloud' ? 'Tus datos se guardan en la nube.' : 'Tus datos se guardan solo en este equipo.'}</p>
     <div class="row mt"><button class="btn sec" data-a="logout">${icon('salir')}Cerrar sesión</button></div></section>`;
   const instalar = `<section class="panel"><div class="ph"><div><h2>Instalar la app</h2><p>Tenla con su ícono en tu celular, iPad o computadora, sin pasar por la tienda de apps.</p></div></div>
     ${standalone ? '<p class="tag ok">Ya la estás usando instalada</p>' : deferredInstall ? '<button class="btn" data-a="install">Instalar .Py México</button>' : ios ? '<p>En iPhone o iPad: abre esta página en Safari, toca el botón de compartir y elige <b>Agregar a pantalla de inicio</b>.</p>' : '<p>En Chrome o Edge: busca el ícono de instalar en la barra de direcciones. En Android: menú de tres puntos y <b>Instalar app</b>.</p>'}</section>`;
   const tema = `<section class="panel"><div class="ph"><h2>Apariencia</h2></div>
     <div class="seg" role="group" aria-label="Tema">${[['sistema', 'Como mi equipo'], ['claro', 'Claro'], ['oscuro', 'Oscuro']].map(([k, l]) => `<button data-a="tema" data-v="${k}" aria-pressed="${ui.tema === k}">${l}</button>`).join('')}</div>
     <p class="hint mt">${ui.tourDone ? '<button class="linkbtn" data-a="tourAgain">Ver otra vez el recorrido de bienvenida</button>' : ''}</p></section>`;
-  if (!isOwner() || !S) return `<div class="grid2">${cuenta}${instalar}${tema}</div>`;
+  const priv = `<section class="panel"><div class="ph"><div><h2>Privacidad</h2><p>Qué datos guardamos, quién puede verlos y cómo borrarlos.</p></div></div>
+    <a class="btn sec" href="privacidad.html" target="_blank" rel="noopener">${icon('escudo')}Leer el aviso de privacidad</a>
+    ${isOwner() && MODE === 'cloud' ? `<div class="mt2"><p class="small"><b>Borrar mi cuenta.</b> Se borran tu restaurante, tus registros, los accesos de tu equipo y tus publicaciones. No se puede deshacer.</p><button class="btn danger mt" data-a="borrarCuenta">Borrar mi cuenta y mis datos</button></div>` : ''}</section>`;
+  if (!isOwner() || !S) return `<div class="grid2">${cuenta}${priv}${instalar}${tema}</div>`;
   return `
   <div class="grid2">
     <section class="panel"><div class="ph"><h2>Tu restaurante</h2></div>
@@ -1634,13 +1754,14 @@ function vConfig() {
       <details class="qs"><summary>¿Qué es cada cosa?</summary><ul><li><b>Saldo con el que empezaste:</b> lo que tenías en banco y caja el día que empezaste a usar la app.</li><li><b>Días de pagos a apartar:</b> cuántos días hacia adelante se descuentan de tu dinero disponible.</li><li><b>Margen para verde:</b> desde cuánto dinero libre el semáforo se pone en verde.</li></ul></details>
     </section>
     <section class="panel"><div class="ph"><h2>Tu plan</h2></div>
-      <div class="stack">${[['autogestion', 'Autogestión', 'Tú llevas el control con la app. Desde $349 al mes.'], ['acompanamiento', 'Acompañamiento', 'Incluye un asesor que te escribe y revisa contigo cada mes. Desde $890 al mes.']].map(([k, l, d]) => `<label style="flex-direction:row;gap:10px;align-items:flex-start;color:var(--ink);font-weight:500"><input type="radio" name="plan" value="${k}" ${c.plan === k ? 'checked' : ''} data-a-change="plan" style="margin-top:5px"><span><b>${l}</b><br><span class="muted">${d}</span></span></label>`).join('')}</div>
+      ${MODE === 'cloud' ? `<p><b>${c.plan === 'acompanamiento' ? 'Acompañamiento' : 'Autogestión'}</b></p><p class="hint">${c.plan === 'acompanamiento' ? (S.advisor && S.advisor.nombre ? 'Tu asesor es ' + h(S.advisor.nombre) + '.' : 'Pronto te asignaremos un asesor.') : 'Tú llevas el control con la app. Con Acompañamiento, una persona del equipo revisa tus números contigo cada mes.'}</p><div class="mt">${planCTA()}</div>`
+      : `<div class="stack">${[['autogestion', 'Autogestión', 'Tú llevas el control con la app. Desde $349 al mes.'], ['acompanamiento', 'Acompañamiento', 'Incluye un asesor que te escribe y revisa contigo cada mes. Desde $890 al mes.']].map(([k, l, d]) => `<label style="flex-direction:row;gap:10px;align-items:flex-start;color:var(--ink);font-weight:500"><input type="radio" name="plan" value="${k}" ${c.plan === k ? 'checked' : ''} data-a-change="plan" style="margin-top:5px"><span><b>${l}</b><br><span class="muted">${d}</span></span></label>`).join('')}</div>`}
     </section>
-    ${MODE === 'cloud' ? `<section class="panel"><div class="ph"><div><h2>Tu equipo en la app</h2><p>Dale acceso a tu encargado o cajera. Pueden registrar ventas, cortes, compras y cierres, pero no ven nómina, retiros ni tu dinero disponible.</p></div></div>
+    ${MODE === 'cloud' && S.funciones.equipo !== false ? `<section class="panel"><div class="ph"><div><h2>Tu equipo en la app</h2><p>Dale acceso a tu encargado o cajera. Pueden registrar ventas, cortes, compras y cierres, pero no ven nómina, retiros ni tu dinero disponible.</p></div></div>
       ${TEAM === null ? '<p class="hint">Cargando…</p>' : TEAM.length ? `<table class="t"><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th></th></tr></thead><tbody>${TEAM.map(m => `<tr><td>${h(m.nombre)}</td><td>${h(m.email)}</td><td>${m.rol === 'dueno' ? 'Dueño' : 'Encargado'}</td><td class="right"><div class="acts">${m.rol === 'staff' ? `<button class="btn danger sm" data-a="removeMember" data-id="${m.id}">Quitar acceso</button>` : ''}</div></td></tr>`).join('')}</tbody></table>` : ''}
       <form class="fields mt" data-f="invite"><label>Nombre<input name="nombre" required></label><label>Correo<input name="email" type="email" required></label><label>Contraseña para entrar<input name="pass" minlength="6" required></label><div class="form-actions"><button class="btn sec" type="submit">Dar acceso</button></div></form>
       <p class="hint mt">Pásale su correo y contraseña; puede cambiar la contraseña con “Olvidé mi contraseña”.</p></section>` : ''}
-    ${cuenta}${instalar}${tema}
+    ${cuenta}${priv}${instalar}${tema}
     <section class="panel"><div class="ph"><div><h2>Datos de ejemplo</h2><p>Para practicar o presentar: carga tres meses de datos de una taquería en tu cuenta, o empieza en blanco.</p></div></div>
       <div class="row"><button class="btn sec" data-a="resetDemo">Cargar datos de ejemplo</button><button class="btn danger" data-a="wipe">Borrar todos mis datos</button></div>
       ${MODE === 'cloud' ? '<p class="hint mt">Esto reemplaza lo que tienes guardado en la nube para este restaurante.</p>' : ''}</section>
@@ -1746,6 +1867,25 @@ const actions = {
   openCliente: async el => { try { await loadRestaurant(el.dataset.id, true); ui.view = 'inicio'; render(); window.scrollTo(0, 0); } catch (e) { BOOTING = null; render(); toast(e.message); } },
   backClientes: () => { S = null; READONLY = false; VIEWING = null; SNAP = null; ui.view = 'clientes'; render(); loadClientes(); },
   setPlan: el => { S.config.plan = el.dataset.v; commit('Plan actualizado'); },
+  solicitarPlan: async el => {
+    const cancelar = el.dataset.v === 'cancelar';
+    try { const j = await api('solicitarPlan', { cancelar }); S.solicitud = j.solicitud; render(); toast(cancelar ? 'Solicitud cancelada' : 'Listo. El equipo te contactará para activar Acompañamiento.'); } catch (e) { toast(e.message); }
+  },
+  borrarCuenta: () => openModal(`<h2>Borrar mi cuenta</h2><p>Se borrarán <b>${h(S.restaurant.nombre)}</b>, todos tus registros, los accesos de tu equipo, tus mensajes y tus publicaciones en la comunidad. No se puede deshacer.</p><form class="fields mt" data-f="borrarCuenta"><label class="wide">Escribe tu contraseña para confirmar<input name="pass" type="password" required autocomplete="current-password"></label><div class="wide actions"><button type="button" class="btn sec" data-a="close">Cancelar</button><button class="btn danger" type="submit">Borrar todo</button></div></form>`),
+  refreshAdmin: () => { ADMIN = null; render(); loadAdmin(); },
+  adminFiltro: el => { ui.adminFiltro = el.dataset.v; render(); },
+  adminEdit: el => openAdminModal(el.dataset.id, el.dataset.plan),
+  adminAsesorToggle: async el => {
+    const activo = el.dataset.v === '1';
+    if (!activo && !confirm('¿Desactivar a este asesor? Ya no podrá entrar y sus restaurantes quedarán sin asesor asignado.')) return;
+    try { await api('adminAsesorActivo', { userId: el.dataset.id, activo }); toast(activo ? 'Asesor reactivado' : 'Asesor desactivado'); loadAdmin(); } catch (e) { toast(e.message); }
+  },
+  rechazarSolicitud: async el => { if (!confirm('¿Rechazar la solicitud de Acompañamiento?')) return; try { await api('adminRestaurante', { restauranteId: el.dataset.id, rechazarSolicitud: true }); toast('Solicitud rechazada'); loadAdmin(); } catch (e) { toast(e.message); } },
+  modPost: async el => {
+    const accion = el.dataset.v;
+    if (accion === 'borrar' && !confirm('¿Borrar esta publicación y sus comentarios? No se puede deshacer.')) return;
+    try { await api('adminPost', { postId: el.dataset.id, accion }); toast({ ocultar: 'Publicación oculta', restaurar: 'Publicación visible otra vez', borrar: 'Publicación borrada' }[accion]); loadFeed(); } catch (e) { toast(e.message); }
+  },
   tema: el => { ui.tema = el.dataset.v; saveUI(); render(); },
   install: async () => { if (!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice; deferredInstall = null; render(); },
   removeMember: async el => { if (!confirm('¿Quitar el acceso a esta persona?')) return; try { await api('quitar', { userId: el.dataset.id }); toast('Acceso quitado'); loadTeam(); } catch (e) { toast(e.message); } },
@@ -1765,7 +1905,7 @@ const actions = {
     closeModal(); endTourSilently();
     if (MODE === 'cloud') { try { await flush(); } catch (e) { } try { await api('salir'); } catch (e) { } SESSION = null; LS.del(K_SES); }
     else if (LOCAL) { LOCAL.session = false; LS.set(K_LOCAL, LOCAL); }
-    USER = null; S = null; MODE = null; READONLY = false; VIEWING = null; FEED = null; CLIENTES = null; TEAM = null; ui.loginTab = 'entrar'; ui.loginError = ''; render();
+    USER = null; S = null; MODE = null; READONLY = false; VIEWING = null; FEED = null; CLIENTES = null; TEAM = null; ADMIN = null; ui.loginTab = 'entrar'; ui.loginError = ''; render();
   },
   csvReport: el => { const mk = el.dataset.v, r = reportData(mk); const lines = ['concepto,monto', 'Ventas,' + Math.round(r.ventas)]; Object.entries(r.byCat).forEach(([c, v]) => { if (v) lines.push(c + ',' + Math.round(-v)); }); lines.push('Merma (informativo),' + Math.round(r.merma)); csvModal('Resumen de ' + monthName(mk), lines.join('\n')); },
   csvSales: el => { const mk = el.dataset.v; const rows = S.sales.filter(s => monthKey(s.fecha) === mk).sort((a, b) => a.fecha.localeCompare(b.fecha)); csvModal('Ventas de ' + monthName(mk), ['fecha,monto,forma de pago'].concat(rows.map(s => fd(s.fecha) + ',' + s.monto + ',' + s.metodo)).join('\n')); },
@@ -1800,6 +1940,7 @@ function parseCsv(txt) {
 async function startCloud(j) {
   SESSION = { token: j.token, user: j.user, restauranteId: j.user.restauranteId }; USER = j.user; MODE = 'cloud'; LS.set(K_SES, SESSION);
   ui.loginError = ''; FEED = null; CLIENTES = null; TEAM = null;
+  if (isAdmin()) { S = null; BOOTING = null; ui.view = 'admin'; render(); loadAdmin(); return; }
   if (isAsesor()) { S = null; BOOTING = null; ui.view = 'clientes'; render(); loadClientes(); return; }
   await loadRestaurant(); ui.view = isStaff() ? 'ventas' : 'inicio'; saveUI(); render();
 }
@@ -1817,7 +1958,7 @@ const forms = {
     ui.loginError = 'El correo o la contraseña no coinciden. Revisa e intenta de nuevo.'; render();
   },
   signup: async fd => {
-    const data = { nombre: String(fd.get('nombre')).trim(), email: String(fd.get('email')).trim().toLowerCase(), pass: String(fd.get('pass')), restaurante: String(fd.get('rest')).trim(), ciudad: String(fd.get('ciudad')).trim(), saldo: Number(fd.get('saldo')) || 0, plan: fd.get('plan') };
+    const data = { nombre: String(fd.get('nombre')).trim(), email: String(fd.get('email')).trim().toLowerCase(), pass: String(fd.get('pass')), restaurante: String(fd.get('rest')).trim(), ciudad: String(fd.get('ciudad')).trim(), saldo: Number(fd.get('saldo')) || 0, plan: fd.get('plan'), aviso: fd.get('aviso') === 'on' };
     if (API) {
       try { BOOTING = 'Creando tu restaurante…'; render(); const j = await api('registro', data); ui.tourDone = false; ui.tourStep = 0; await startCloud(j); toast('Listo. Empieza con los pasos de “Prepara tu restaurante”.'); }
       catch (er) { BOOTING = null; ui.loginError = er.message; render(); }
@@ -1887,12 +2028,30 @@ const forms = {
     S.msgs.push({ id: uid(), fecha: new Date().toISOString(), de: 'dueno', autor: USER.nombre, texto }); commit(); scrollThread();
   },
   advSession: async fd => { const proxima = fd.get('fecha') + 'T' + fd.get('hora'); try { const j = await api('asesorSesion', { restauranteId: VIEWING.id, proxima }); S.advisor = j.asesor; render(); toast('Sesión agendada'); } catch (e) { toast(e.message); } },
+  borrarCuenta: async fd => {
+    try {
+      BOOTING = 'Borrando tu cuenta…'; closeModal(); render();
+      await api('borrarCuenta', { pass: String(fd.get('pass')) });
+      const rid = SESSION && SESSION.restauranteId; LS.del('pymx_cache_' + rid); LS.del(outKey()); LS.del(K_SES);
+      SESSION = null; USER = null; S = null; MODE = null; BOOTING = null; ui.loginTab = 'entrar'; ui.loginError = ''; ui.loginOk = 'Tu cuenta y todos tus datos se borraron.'; render();
+    } catch (e) { BOOTING = null; render(); toast(e.message); }
+  },
+  adminRest: async (fd, f) => {
+    const rid = f.dataset.id; const plan = fd.get('plan');
+    const funciones = {}; (ADMIN.funciones || []).forEach(k => funciones[k] = fd.get('fn_' + k) === 'on');
+    const data = { restauranteId: rid, plan, funciones, suspendido: fd.get('estado') === 'suspendido', asesorId: plan === 'acompanamiento' ? (fd.get('asesorId') || '') : '' };
+    try { await api('adminRestaurante', data); closeModal(); toast('Cambios guardados'); loadAdmin(); } catch (e) { toast(e.message); }
+  },
+  adminAsesor: async (fd, f) => {
+    try { await api('adminCrearAsesor', { nombre: String(fd.get('nombre')).trim(), email: String(fd.get('email')).trim().toLowerCase(), pass: String(fd.get('pass')) }); f.reset(); toast('Asesor creado. Pásale su correo y contraseña.'); loadAdmin(); } catch (e) { toast(e.message); }
+  },
   invite: async fd => { try { await api('invitar', { nombre: String(fd.get('nombre')).trim(), email: String(fd.get('email')).trim().toLowerCase(), pass: String(fd.get('pass')) }); toast('Listo, ya puede entrar con ese correo'); loadTeam(); } catch (e) { toast(e.message); } },
   cfgRest: fd => { Object.assign(S.restaurant, { nombre: fd.get('nombre'), ciudad: fd.get('ciudad'), giro: fd.get('giro') }); commit('Datos guardados'); },
   cfgFin: fd => { Object.assign(S.config, { saldoInicial: Number(fd.get('saldoInicial')) || 0, diasCompromisos: Math.max(1, Number(fd.get('dias')) || 7), umbralVerde: Number(fd.get('umbral')) || 0, cuotasPct: Number(fd.get('cuotas')) || 0 }); commit('Guardado'); }
 };
 function scrollThread() { const t = document.getElementById('thread'); if (t) t.scrollTop = t.scrollHeight; }
 const FORMS_RO = new Set(['msg', 'advSession', 'post', 'comment', 'login', 'signup', 'recover', 'reset']);
+const ADMIN_OK = new Set(['adminRest', 'adminAsesor']);
 
 /* ============ Eventos ============ */
 document.addEventListener('click', e => {
@@ -1918,6 +2077,9 @@ document.addEventListener('change', e => {
   else if (k === 'plan') { if (READONLY) return; S.config.plan = el.value; commit('Plan actualizado'); }
 });
 document.addEventListener('input', e => {
+  if (e.target.matches('[data-adminsearch]')) { const q = e.target.value.trim().toLowerCase(); document.querySelectorAll('tr[data-text]').forEach(tr => { tr.style.display = !q || tr.dataset.text.includes(q) ? '' : 'none'; }); return; }
+  const ar = e.target.closest('form[data-f="adminRest"]');
+  if (ar && e.target.name === 'plan') { ar.asesorId.disabled = e.target.value !== 'acompanamiento'; return; }
   const sim = e.target.closest('form[data-sim]');
   if (sim) {
     const fdd = new FormData(sim); const prevMover = ui.sim.moverId, prevModo = ui.sim.moverModo; for (const [k, v] of fdd.entries()) ui.sim[k] = v; if (!fdd.has('moverModo')) ui.sim.moverModo = 'mover';
@@ -1955,6 +2117,7 @@ async function boot() {
   LOCAL = LS.get(K_LOCAL, null);
   if (ses && ses.token && ses.user) {
     SESSION = ses; USER = ses.user; MODE = 'cloud';
+    if (isAdmin()) { if (!['admin', 'asesores', 'comunidad', 'config'].includes(ui.view)) ui.view = 'admin'; render(); loadAdmin(); if (ui.view === 'comunidad') loadFeed(); return; }
     if (isAsesor()) { ui.view = 'clientes'; render(); loadClientes(); return; }
     const c = LS.get('pymx_cache_' + ses.restauranteId, null);
     if (c) {
