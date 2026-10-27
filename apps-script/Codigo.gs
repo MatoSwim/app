@@ -46,7 +46,9 @@ var SISTEMA = {
 var STAFF_PUEDE = { ventas: 1, cortes: 1, compras: 1, productos: 1, proveedores: 1, cierres: 1, pagos: 1 };
 var DIAS_SESION = 30;
 // Funciones que el administrador puede activar o desactivar por restaurante
-var FUNCIONES = ['simulador', 'promos', 'financiamiento', 'comunidad', 'equipo'];
+var FUNCIONES = ['credito', 'simulador', 'promos', 'comunidad', 'equipo'];
+// Estas empiezan apagadas: el administrador las activa cuando quiera
+var FUNCIONES_APAGADAS = { credito: 1 };
 var MSG_SUSP = 'La cuenta de este restaurante está suspendida. Escribe al equipo de .Py México para reactivarla.';
 
 /* ===================== Entrada ===================== */
@@ -286,23 +288,7 @@ var ACCIONES = {
     var u = auth_(p); if (u.rol !== 'dueno') throw err_('Solo el dueño puede borrar la cuenta del restaurante.');
     var full = buscaPor_('usuarios', 'id', u.id);
     if (!full || hash_(String(p.pass || ''), full.salt) !== full.hash) throw err_('La contraseña no es correcta.');
-    var rid = u.restauranteId;
-    conCandado_(function () {
-      for (var c in COLECCIONES) {
-        var enc = encabezado_(c); var sh = hoja_(c, enc); var n = enc.length; var last = sh.getLastRow();
-        var data = last > 1 ? sh.getRange(2, 1, last - 1, n).getValues() : [];
-        var keep = data.filter(function (r) { return r[0] !== '' && String(r[1]) !== rid; });
-        if (keep.length !== data.filter(function (r) { return r[0] !== ''; }).length) reescribe_(sh, n, keep, data.length, formatos_(c));
-      }
-      var ids = leeTabla_('usuarios').filter(function (x) { return x.restauranteId === rid; }).map(function (x) { return x.id; });
-      cierraSesiones_(ids);
-      var esDe = {}; ids.forEach(function (i) { esDe[i] = 1; });
-      var postsDe = {}; leeTabla_('publicaciones').forEach(function (x) { if (esDe[x.autorId]) postsDe[x.id] = 1; });
-      borraFilas_('comentarios', function (x) { return esDe[x.autorId] || postsDe[x.publicacionId]; });
-      borraFilas_('publicaciones', function (x) { return esDe[x.autorId]; });
-      borraFilas_('usuarios', function (x) { return esDe[x.id]; });
-      borraFilas_('restaurantes', function (x) { return x.id === rid; });
-    });
+    conCandado_(function () { borraRestaurante_(u.restauranteId); });
     return {};
   },
 
@@ -336,13 +322,20 @@ var ACCIONES = {
         r.asesor = r.asesor || {};
         if (r.plan !== 'acompanamiento') { r.asesor.asesorId = ''; r.asesor.nombre = ''; }
         else if (p.asesorId !== undefined) { r.asesor.asesorId = asesor ? asesor.id : ''; r.asesor.nombre = asesor ? asesor.nombre : ''; }
-        if (p.funciones) { var f = {}; FUNCIONES.forEach(function (k) { f[k] = p.funciones[k] !== false; }); r.funciones = f; }
+        if (p.funciones) { var f = {}; FUNCIONES.forEach(function (k) { f[k] = FUNCIONES_APAGADAS[k] ? p.funciones[k] === true : p.funciones[k] !== false; }); r.funciones = f; }
         if (p.suspendido !== undefined) r.suspendido = !!p.suspendido;
         out = r; return r;
       });
       if (!n) throw err_('No encontramos ese restaurante.');
       // No se cierran las sesiones: cada acción revisa si la cuenta está suspendida y explica el motivo.
     });
+    return {};
+  },
+  adminBorrar: function (p) {
+    soloAdmin_(p); var rid = String(p.restauranteId || '');
+    var R = buscaPor_('restaurantes', 'id', rid); if (!R) throw err_('No encontramos ese restaurante.');
+    if (String(p.confirmar || '').trim().toLowerCase() !== String(R.nombre || '').trim().toLowerCase()) throw err_('El nombre no coincide. Escríbelo igual que aparece.');
+    conCandado_(function () { borraRestaurante_(rid); });
     return {};
   },
   adminCrearAsesor: function (p) {
@@ -424,7 +417,24 @@ function restauranteDe_(u, pedido) {
 }
 function asignado_(R, u) { return R.plan === 'acompanamiento' && (R.asesor || {}).asesorId === u.id; }
 function asesorPublico_(R) { var a = (R && R.asesor) || {}; return R && R.plan === 'acompanamiento' && a.asesorId ? { nombre: a.nombre || '', proxima: a.proxima || '' } : { nombre: '', proxima: a.proxima || '' }; }
-function funcionesDe_(R) { var f = (R && R.funciones) || {}; var o = {}; FUNCIONES.forEach(function (k) { o[k] = f[k] !== false; }); return o; }
+/* Borra un restaurante con todo: registros, usuarios, sesiones, publicaciones. Quien llama ya tiene el candado. */
+function borraRestaurante_(rid) {
+  for (var c in COLECCIONES) {
+    var enc = encabezado_(c); var sh = hoja_(c, enc); var n = enc.length; var last = sh.getLastRow();
+    var data = last > 1 ? sh.getRange(2, 1, last - 1, n).getValues() : [];
+    var keep = data.filter(function (r) { return r[0] !== '' && String(r[1]) !== rid; });
+    if (keep.length !== data.filter(function (r) { return r[0] !== ''; }).length) reescribe_(sh, n, keep, data.length, formatos_(c));
+  }
+  var ids = leeTabla_('usuarios').filter(function (x) { return x.restauranteId === rid; }).map(function (x) { return x.id; });
+  cierraSesiones_(ids);
+  var esDe = {}; ids.forEach(function (i) { esDe[i] = 1; });
+  var postsDe = {}; leeTabla_('publicaciones').forEach(function (x) { if (esDe[x.autorId]) postsDe[x.id] = 1; });
+  borraFilas_('comentarios', function (x) { return esDe[x.autorId] || postsDe[x.publicacionId]; });
+  borraFilas_('publicaciones', function (x) { return esDe[x.autorId]; });
+  borraFilas_('usuarios', function (x) { return esDe[x.id]; });
+  borraFilas_('restaurantes', function (x) { return x.id === rid; });
+}
+function funcionesDe_(R) { var f = (R && R.funciones) || {}; var o = {}; FUNCIONES.forEach(function (k) { o[k] = FUNCIONES_APAGADAS[k] ? f[k] === true : f[k] !== false; }); return o; }
 function restauranteActivo_(u) {
   var R = buscaPor_('restaurantes', 'id', u.restauranteId);
   if (!R) throw err_('No encontramos tu restaurante.', 'sesion');

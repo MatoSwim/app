@@ -44,7 +44,11 @@ Mientras `config.js` no tenga el enlace del Apps Script, la app funciona solo en
 
 **Crear la cuenta de administrador (una sola vez).** En Apps Script, busca la función `crearAdmin`, escribe nombre, correo y contraseña entre las comillas, elígela en la lista de arriba y toca **Ejecutar**. Después **borra la contraseña del código** y guarda. Entra a la app con ese correo: verás el panel "Restaurantes".
 
-**Qué puede hacer el administrador.** Ver la lista de restaurantes (nombre, dueño, plan; nunca sus números), activar o desactivar funciones (simulador, promociones, financiamiento, comunidad, equipo), cambiar el plan, suspender una cuenta, moderar la comunidad y crear asesores.
+**Qué puede hacer el administrador.** Ver la lista de restaurantes (nombre, dueño, plan; nunca sus números), activar o desactivar funciones (crédito, simulador, promociones, comunidad, equipo), cambiar el plan, suspender o eliminar una cuenta, moderar la comunidad y crear asesores.
+
+**Crédito.** Empieza apagado en todos los restaurantes: el dueño lo ve en el menú con candado y "Próximamente". Para activarlo, en Restaurantes > Administrar marca **Crédito**.
+
+**Eliminar una cuenta.** En Restaurantes > Administrar, abajo, **Eliminar cuenta**. Hay que escribir el nombre del restaurante para confirmar. Se borra todo y no se puede deshacer.
 
 **Asesores.** Se crean desde el panel, en "Asesores". Cuando un restaurante pague el Acompañamiento, en "Restaurantes" toca **Administrar**, elige Acompañamiento y su asesor. El asesor solo ve los restaurantes que le asignaste y no puede cambiar nada.
 

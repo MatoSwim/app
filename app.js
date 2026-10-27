@@ -356,7 +356,9 @@ const IC = {
   copiar: 'M9 9h11v11H9zM5 15H4V4h11v1',
   volver: 'M15 6l-6 6 6 6',
   caja: 'M3 8h18v12H3zM7 8V5h10v3M12 12v4M10 14h4',
-  cuchillo: 'M4 20 15 9M14 4l6 6-5 1-2-2z'
+  cuchillo: 'M4 20 15 9M14 4l6 6-5 1-2-2z',
+  dia: 'M6 3h12v18H6zM9.5 9.5l1.8 1.8 3.4-3.4M9.5 15.5h5',
+  herr: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM16.5 13.5v6M13.5 16.5h6'
 };
 const icon = (k, cls) => `<svg class="${cls || ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${k === 'mas' ? 3.2 : 1.8}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${IC[k]}"/></svg>`;
 const ILL = {
@@ -400,7 +402,7 @@ function blankData(r) {
     sales: [], products: [], suppliers: [], purchases: [], closings: [], employees: [], payrolls: [],
     recurring: [], payables: [], reserve: { meta: 0, movs: [] }, cash: [], posts: [], promos: [], cortes: [], msgs: [],
     advisor: { nombre: '', proxima: null },
-    funciones: { simulador: true, promos: true, financiamiento: true, comunidad: true, equipo: true }, solicitud: ''
+    funciones: { credito: true, simulador: true, promos: true, comunidad: true, equipo: true }, solicitud: ''
   };
 }
 const ROL = () => (USER && USER.rol) || 'dueno';
@@ -508,32 +510,56 @@ async function loadRestaurant(rid, readonly) {
 }
 
 /* ============ Navegación ============ */
-const NAV_OWNER = [
-  ['Tu dinero', [['inicio', 'Inicio'], ['ventas', 'Ventas y caja'], ['pagos', 'Pagos y gastos'], ['reserva', 'Fondo de reserva'], ['simulador', 'Simulador']]],
-  ['Operación', [['perecederos', 'Perecederos'], ['nomina', 'Empleados y nómina'], ['impuestos', 'Impuestos']]],
-  ['Crecer', [['promos', 'Promociones'], ['financiamiento', 'Financiamiento'], ['reportes', 'Reportes']]],
-  ['Apoyo', [['comunidad', 'Comunidad'], ['asesor', 'Mi asesor']]],
-  ['Cuenta', [['config', 'Configuración']]]
+// Herramientas extra: el dueño elige cuáles ver para que la app no se sienta pesada
+const HERR = [
+  ['ventas', 'Ventas y caja', 'Ventas por día y por forma de pago, corte de caja detallado e importar del punto de venta.'],
+  ['reportes', 'Reportes', 'A dónde se fue el dinero de cada mes y cómo vas contra otros restaurantes.'],
+  ['reserva', 'Fondo de reserva', 'Aparta dinero para emergencias y mira cuánto llevas.'],
+  ['nomina', 'Empleados y nómina', 'Tu equipo, sueldos y la nómina de cada semana o quincena.'],
+  ['perecederos', 'Perecederos', 'Compras a proveedores, cuánto comprar y cuánto se tira.'],
+  ['impuestos', 'Impuestos', 'Una estimación de lo que tendrás que pagar para que no te agarre de sorpresa.'],
+  ['simulador', 'Simulador', 'Prueba una decisión antes de tomarla: subir precios, contratar, comprar equipo.'],
+  ['promos', 'Promociones', 'Encuentra tu día flojo y mide si una promoción funcionó.']
 ];
-const NAV_STAFF = [['Tu turno', [['ventas', 'Ventas y caja'], ['perecederos', 'Perecederos']]], ['Apoyo', [['comunidad', 'Comunidad']]], ['Cuenta', [['config', 'Mi cuenta']]]];
+const HERR_KEYS = new Set(HERR.map(x => x[0]));
+function herrOn(k) {
+  const H = S && S.config.herramientas;
+  if (H && k in H) return !!H[k];
+  if (!S) return false;
+  if (k === 'nomina') return S.employees.length > 0;
+  if (k === 'perecederos') return S.products.length > 0;
+  if (k === 'reserva') return S.reserve.meta > 0 || S.reserve.movs.length > 0;
+  return false;
+}
+const VIEW_FN = { simulador: 'simulador', promos: 'promos', comunidad: 'comunidad' };
+const fnOk = k => !VIEW_FN[k] || !S || !S.funciones || S.funciones[VIEW_FN[k]] !== false;
+const creditoOn = () => !!(S && S.funciones && S.funciones.credito);
+function navOwner() {
+  const herr = HERR.filter(([k]) => fnOk(k) && herrOn(k)).map(([k, l]) => [k, l]);
+  return [
+    ['Tu día', [['inicio', 'Inicio'], ['dia', 'Cerrar el día'], ['pagos', 'Pagos y gastos']]],
+    ['Crecer', [['financiamiento', 'Crédito'], ['comunidad', 'Comunidad'], ['asesor', 'Mi asesor']]],
+    ['Herramientas', herr.concat([['herramientas', herr.length ? 'Agregar o quitar' : 'Agregar herramientas']])],
+    ['Cuenta', [['config', 'Configuración']]]
+  ];
+}
+const NAV_STAFF = [['Tu turno', [['dia', 'Cerrar el día'], ['ventas', 'Ventas y caja'], ['perecederos', 'Perecederos']]], ['Apoyo', [['comunidad', 'Comunidad']]], ['Cuenta', [['config', 'Mi cuenta']]]];
 const NAV_ASESOR = [['Asesoría', [['clientes', 'Mis clientes']]], ['Apoyo', [['comunidad', 'Comunidad']]], ['Cuenta', [['config', 'Mi cuenta']]]];
+const NAV_VIEWING = [['Asesoría', [['clientes', 'Mis clientes']]], ['Su negocio', [['inicio', 'Inicio'], ['ventas', 'Ventas y caja'], ['pagos', 'Pagos y gastos'], ['reportes', 'Reportes'], ['nomina', 'Empleados y nómina'], ['perecederos', 'Perecederos']]], ['Apoyo', [['asesor', 'Mensajes']]]];
 const NAV_ADMIN = [['Administración', [['admin', 'Restaurantes'], ['asesores', 'Asesores']]], ['Apoyo', [['comunidad', 'Comunidad']]], ['Cuenta', [['config', 'Mi cuenta']]]];
-const VIEW_FN = { simulador: 'simulador', promos: 'promos', financiamiento: 'financiamiento', comunidad: 'comunidad' };
-const TITLES = { inicio: 'Inicio', ventas: 'Ventas y caja', pagos: 'Pagos y gastos', reserva: 'Fondo de reserva', simulador: '¿Qué pasa si…?', perecederos: 'Perecederos', nomina: 'Empleados y nómina', impuestos: 'Impuestos', promos: 'Promociones', financiamiento: 'Financiamiento', reportes: 'Reportes', comunidad: 'Comunidad', asesor: 'Mi asesor', config: 'Configuración', clientes: 'Mis clientes', admin: 'Restaurantes', asesores: 'Asesores' };
-const ICON_OF = { inicio: 'inicio', ventas: 'ventas', pagos: 'pagos', reserva: 'reserva', simulador: 'simulador', perecederos: 'perecederos', nomina: 'nomina', impuestos: 'impuestos', promos: 'promos', financiamiento: 'financiamiento', reportes: 'reportes', comunidad: 'comunidad', asesor: 'asesor', config: 'config', clientes: 'clientes', admin: 'clientes', asesores: 'asesor' };
+const TITLES = { inicio: 'Inicio', dia: 'Cerrar el día', ventas: 'Ventas y caja', pagos: 'Pagos y gastos', reserva: 'Fondo de reserva', simulador: '¿Qué pasa si…?', perecederos: 'Perecederos', nomina: 'Empleados y nómina', impuestos: 'Impuestos', promos: 'Promociones', financiamiento: 'Crédito', reportes: 'Reportes', comunidad: 'Comunidad', asesor: 'Mi asesor', config: 'Configuración', clientes: 'Mis clientes', admin: 'Restaurantes', asesores: 'Asesores', herramientas: 'Herramientas' };
+const ICON_OF = { inicio: 'inicio', dia: 'dia', ventas: 'ventas', pagos: 'pagos', reserva: 'reserva', simulador: 'simulador', perecederos: 'perecederos', nomina: 'nomina', impuestos: 'impuestos', promos: 'promos', financiamiento: 'financiamiento', reportes: 'reportes', comunidad: 'comunidad', asesor: 'asesor', config: 'config', clientes: 'clientes', admin: 'clientes', asesores: 'asesor', herramientas: 'herr' };
 function navGroups() {
   let g;
   if (isAdmin()) return NAV_ADMIN;
-  if (isAsesor()) g = VIEWING ? [['Asesoría', [['clientes', 'Mis clientes']]]].concat(NAV_OWNER.slice(0, 3)).concat([['Apoyo', [['asesor', 'Mensajes']]]]) : NAV_ASESOR;
+  if (isAsesor()) g = VIEWING ? NAV_VIEWING : NAV_ASESOR;
   else if (isStaff()) g = NAV_STAFF;
-  else g = NAV_OWNER;
-  const F = S && S.funciones;
-  if (!F) return g;
-  return g.map(([n, items]) => [n, items.filter(([k]) => !VIEW_FN[k] || F[VIEW_FN[k]] !== false)]).filter(x => x[1].length);
+  else g = navOwner();
+  return g.map(([n, items]) => [n, items.filter(([k]) => fnOk(k))]).filter(x => x[1].length);
 }
 const allowedViews = () => navGroups().flatMap(g => g[1].map(x => x[0]));
 function bottomItems() {
-  const pref = isAdmin() ? ['admin', 'asesores', 'comunidad'] : isAsesor() && !VIEWING ? ['clientes', 'comunidad', 'config'] : isStaff() ? ['ventas', 'perecederos', 'comunidad'] : VIEWING ? ['inicio', 'pagos', 'asesor'] : ['inicio', 'ventas', 'pagos', 'comunidad'];
+  const pref = isAdmin() ? ['admin', 'asesores', 'comunidad'] : isAsesor() && !VIEWING ? ['clientes', 'comunidad', 'config'] : isStaff() ? ['dia', 'ventas', 'perecederos'] : VIEWING ? ['inicio', 'pagos', 'asesor'] : ['inicio', 'dia', 'pagos', 'financiamiento'];
   return pref.filter(v => allowedViews().includes(v));
 }
 function applyTheme() {
@@ -552,16 +578,16 @@ function render() {
   if (!USER || (!S && !noRest())) { app.innerHTML = vLogin(); return; }
   if (S && !READONLY && !isStaff()) ensureGenerated();
   let v = ui.view; if (!allowedViews().includes(v)) v = ui.view = allowedViews()[0];
-  const views = { inicio: vInicio, ventas: vVentas, pagos: vPagos, reserva: vReserva, simulador: vSimulador, perecederos: vPerecederos, nomina: vNomina, impuestos: vImpuestos, promos: vPromos, financiamiento: vFinanciamiento, reportes: vReportes, comunidad: vComunidad, asesor: vAsesor, config: vConfig, clientes: vClientes, admin: vAdmin, asesores: vAsesores };
+  const views = { inicio: vInicio, dia: vDia, herramientas: vHerramientas, ventas: vVentas, pagos: vPagos, reserva: vReserva, simulador: vSimulador, perecederos: vPerecederos, nomina: vNomina, impuestos: vImpuestos, promos: vPromos, financiamiento: vFinanciamiento, reportes: vReportes, comunidad: vComunidad, asesor: vAsesor, config: vConfig, clientes: vClientes, admin: vAdmin, asesores: vAsesores };
   const nAv = S && !isStaff() && !(isAsesor() && !VIEWING) ? avisos() : [];
   const vencidos = S && !isStaff() ? pendientes().filter(p => p.vence < today()).length : 0;
-  const nav = navGroups().map(([g, items]) => `<div class="navgroup"><span>${g}</span>${items.map(([k, l]) => `<button class="navbtn" data-a="nav" data-v="${k}" ${k === v ? 'aria-current="page"' : ''}>${icon(ICON_OF[k])}${l}${k === 'pagos' && vencidos ? `<span class="count" title="Pagos vencidos">${vencidos}</span>` : ''}</button>`).join('')}</div>`).join('');
+  const nav = navGroups().map(([g, items]) => `<div class="navgroup"><span>${g}</span>${items.map(([k, l]) => `<button class="navbtn" data-a="nav" data-v="${k}" ${k === v ? 'aria-current="page"' : ''}>${icon(ICON_OF[k])}${l}${k === 'financiamiento' && !creditoOn() ? icon('candado', 'lock') : ''}${k === 'pagos' && vencidos ? `<span class="count" title="Pagos vencidos">${vencidos}</span>` : ''}</button>`).join('')}</div>`).join('');
   const restName = VIEWING ? VIEWING.nombre : S ? S.restaurant.nombre : 'Equipo .Py México';
   const planTxt = isAdmin() ? 'Administrador' : isAsesor() && !VIEWING ? 'Asesor del equipo' : isStaff() ? 'Encargado' : S && S.config.plan === 'acompanamiento' ? 'Plan Acompañamiento' : 'Plan Autogestión';
   const syncEl = MODE === 'cloud' ? `<span class="sync ${SYNC === 'ok' ? '' : SYNC === 'saving' ? 'saving' : 'off'}" data-sync><i></i><span>${SYNC === 'ok' ? 'Guardado en la nube' : 'Guardando…'}</span></span>` : `<span class="sync off" data-sync><i></i><span>${LOCAL && LOCAL.account && LOCAL.account.demo ? 'Demostración en este equipo' : 'Guardado en este equipo'}</span></span>`;
   const sub = v === 'inicio' && !READONLY ? '' : `${h(restName)}, ${fdl(today())}`;
   const title = v === 'inicio' ? (READONLY ? 'Así va ' + h(restName) : `${saludo()}, ${h(firstName(USER.nombre))}`) : TITLES[v];
-  const actionsTop = S && !isAsesor() ? `<div class="actions">${!isStaff() ? `<button class="btn sec" data-a="avisos">${icon('campana')}Avisos${nAv.length ? ` <span class="badge ${nAv.some(a => a.k === 'bad') ? 'bad' : ''}">${nAv.length}</span>` : ''}</button><button class="btn sec" data-a="quickPay">Registrar pago</button>` : ''}<button class="btn" data-a="quickSale" data-tour="registrar">${icon('mas1')}Registrar venta</button></div>` : '';
+  const actionsTop = S && !isAsesor() ? `<div class="actions">${!isStaff() ? `<button class="btn sec" data-a="avisos">${icon('campana')}Avisos${nAv.length ? ` <span class="badge ${nAv.some(a => a.k === 'bad') ? 'bad' : ''}">${nAv.length}</span>` : ''}</button><button class="btn sec" data-a="quickPay">Registrar pago</button>` : ''}${v !== 'dia' ? `<button class="btn" data-a="nav" data-v="dia" data-tour="registrar">${icon('dia')}Cerrar el día</button>` : ''}</div>` : '';
   const banner = READONLY ? `<div class="banner warn">${icon('asesor')}<span>Estás revisando <b>${h(restName)}</b> como asesor. Puedes ver todo y escribirle mensajes, pero no cambiar sus datos.</span><span class="spacer"></span><button class="btn sec sm" data-a="backClientes">Volver a mis clientes</button></div>`
     : MODE === 'local' && LOCAL.account.demo ? `<div class="banner">${icon('caja')}<span>Estás en la demostración con datos de ejemplo de una taquería. ${API ? 'Crea tu cuenta para registrar tu propio restaurante y guardar en la nube.' : 'Lo que cambies se guarda solo en este equipo.'}</span><span class="spacer"></span>${API ? '<button class="btn sm" data-a="toSignup">Crear mi cuenta</button>' : ''}</div>` : '';
   app.innerHTML = `
@@ -581,7 +607,7 @@ function render() {
       </header>
       <div class="content">${views[v]()}</div>
     </main>
-    <nav class="bottomnav" aria-label="Menú">${bottomItems().map(k => `<button data-a="nav" data-v="${k}" ${k === v ? 'aria-current="page"' : ''}>${icon(ICON_OF[k])}${k === 'pagos' && vencidos ? `<span class="count">${vencidos}</span>` : ''}${(TITLES[k] || '').replace('Ventas y caja', 'Ventas').replace('Pagos y gastos', 'Pagos').replace('Mis clientes', 'Clientes').replace('Configuración', 'Cuenta')}</button>`).join('')}<button data-a="more">${icon('mas')}Más</button></nav>
+    <nav class="bottomnav" aria-label="Menú">${bottomItems().map(k => `<button data-a="nav" data-v="${k}" ${k === v ? 'aria-current="page"' : ''}>${icon(ICON_OF[k])}${k === 'pagos' && vencidos ? `<span class="count">${vencidos}</span>` : ''}${(TITLES[k] || '').replace('Ventas y caja', 'Ventas').replace('Pagos y gastos', 'Pagos').replace('Mis clientes', 'Clientes').replace('Configuración', 'Cuenta').replace('Cerrar el día', 'Cerrar día')}</button>`).join('')}<button data-a="more">${icon('mas')}Más</button></nav>
   </div>`;
   decorateTables();
   if (ui.focus) { const el = document.getElementById(ui.focus); if (el) el.focus(); ui.focus = null; }
@@ -595,7 +621,10 @@ function decorateTables() {
     t.querySelectorAll('tbody tr').forEach(tr => [...tr.children].forEach((td, i) => { if (hs[i]) td.dataset.label = hs[i]; if (td.querySelector('.acts')) td.classList.add('acts-cell'); }));
   });
 }
-function go(v) { ui.view = v; closeModal(); saveUI(); render(); window.scrollTo(0, 0); if (v === 'comunidad' && MODE === 'cloud') loadFeed(); if (v === 'asesor' && MODE === 'cloud') loadMsgs(); if (v === 'clientes') loadClientes(); if (v === 'config' && MODE === 'cloud' && isOwner()) loadTeam(); if ((v === 'admin' || v === 'asesores') && MODE === 'cloud') loadAdmin(); }
+function go(v) {
+  if (isOwner() && !READONLY && S && HERR_KEYS.has(v) && fnOk(v) && !herrOn(v)) { S.config.herramientas = Object.assign({}, herrMap(), { [v]: true }); if (MODE === 'local') LS.set(K_LOCAL, LOCAL); toast('Agregamos ' + HERR.find(x => x[0] === v)[1] + ' a tus herramientas'); }
+  ui.view = v; closeModal(); saveUI(); render(); window.scrollTo(0, 0); if (v === 'comunidad' && MODE === 'cloud') loadFeed(); if (v === 'asesor' && MODE === 'cloud') loadMsgs(); if (v === 'clientes') loadClientes(); if (v === 'config' && MODE === 'cloud' && isOwner()) loadTeam(); if ((v === 'admin' || v === 'asesores') && MODE === 'cloud') loadAdmin(); }
+function herrMap() { const o = {}; HERR.forEach(([k]) => o[k] = herrOn(k)); return o; }
 function commit(msg) {
   if (READONLY) { render(); toast('Como asesor solo puedes revisar y escribir mensajes.'); return; }
   if (MODE === 'local') LS.set(K_LOCAL, LOCAL);
@@ -607,7 +636,7 @@ const TOUR = [
   ['caja', 'Tu dinero de un vistazo', 'Este número es lo que de verdad puedes usar hoy: tu saldo menos los pagos que ya vienen y tu fondo de reserva. La barra te muestra cómo se reparte.'],
   ['semaforo', 'El semáforo', 'Verde: vas bien. Amarillo: cuidado con compras o retiros grandes. Rojo: lo que debes supera lo que tienes. Debajo ves cuánto puedes retirar para ti sin riesgo.'],
   ['viene', 'Lo que viene', 'Tus pagos de los próximos días, ordenados. Cuando pagues uno, márcalo y tu dinero disponible se actualiza solo.'],
-  ['registrar', 'Registra tu venta diaria', 'Con eso basta para que las cuentas, las alertas y la proyección funcionen. Toma menos de un minuto al día.']
+  ['registrar', 'Cierra tu día', 'Al cerrar, anota cuánto vendiste y si gastaste algo. Con eso basta para que las cuentas, las alertas y la proyección funcionen. Toma un minuto.']
 ];
 function showTour() {
   const i = ui.tourStep || 0; const st = TOUR[i]; if (!st) return;
@@ -679,15 +708,13 @@ function vLogin() {
 function primerosPasos() {
   if (!isOwner() || READONLY) return '';
   const pasos = [
-    ['Registra tu primera venta', S.sales.length > 0, 'quickSale'],
+    ['Escribe con cuánto dinero empiezas hoy (banco y caja)', S.config.saldoInicial !== 0 || !!S.config.saldoOk, 'goSaldo'],
     ['Agrega tus gastos fijos: renta, luz, agua, gas', S.recurring.length > 0, 'goFijos'],
-    ['Da de alta a tu equipo de trabajo', S.employees.length > 0, 'goEquipo'],
-    ['Agrega los productos que compras y a tus proveedores', S.products.length > 0 && S.suppliers.length > 0, 'goCatalogo'],
-    ['Define la meta de tu fondo de reserva', S.reserve.meta > 0, 'goReserva']
+    ['Cierra tu primer día: cuánto vendiste y qué gastaste', S.sales.length > 0, 'goDia']
   ];
   const hechos = pasos.filter(x => x[1]).length;
   if (hechos === pasos.length) return '';
-  return `<section class="panel"><div class="ph"><div><h2>Prepara tu restaurante</h2><p>Con estos cinco pasos, la app ya puede calcular tu dinero disponible y avisarte a tiempo. Llevas ${hechos} de ${pasos.length}.</p></div></div>
+  return `<section class="panel"><div class="ph"><div><h2>Empieza en tres pasos</h2><p>Con esto la app ya puede decirte cuánto puedes usar y avisarte a tiempo. Llevas ${hechos} de ${pasos.length}.</p></div></div>
     <div class="progress"><span style="width:${hechos / pasos.length * 100}%"></span></div>
     <ol class="pasos">${pasos.map(([t, ok, a], i) => `<li class="${ok ? 'done' : ''}"><span class="n">${ok ? '✓' : i + 1}</span><span class="t">${t}</span>${ok ? '<span class="tag ok">Listo</span>' : `<button class="btn sec sm" data-a="${a}">Hacerlo ahora</button>`}</li>`).join('')}</ol></section>`;
 }
@@ -772,32 +799,38 @@ function vInicio() {
   const merma = sum(Object.values(by), x => x); const top = Object.entries(by).sort((a, b) => b[1] - a[1])[0];
   const topName = top ? (S.products.find(p => p.id === top[0]) || {}).nombre : '';
   const nextNom = (() => { for (let i = 0; i < 16; i++) { const x = addD(T, i); const e = S.employees.filter(e => e.activo && isPayday(x, e.periodicidad)); if (e.length) return { fecha: x, monto: sum(e, 'sueldo'), n: e.length }; } return null; })();
-  return `
-  ${primerosPasos()}
-  ${caja}
-  ${alertHtml}
+  const cerrado = diaCerrado(T);
+  const cerrarHoy = isOwner() && !READONLY && S.sales.length && !cerrado ? `<section class="cierre-cta"><div>${icon('dia')}<span><b>¿Ya cerraste el día de hoy?</b> Anota cuánto vendiste y qué gastaste. Toma un minuto.</span></div><button class="btn" data-a="nav" data-v="dia">Cerrar el día</button></section>` : '';
+  const detalle = `
   <div class="g57">
-    <section class="panel" data-tour="viene"><div class="ph"><div><h2>Lo que viene</h2><p>Tus pagos de las próximas dos semanas.</p></div><button class="linkbtn" data-a="nav" data-v="pagos">Ver todos</button></div>
-      ${timeline(upcoming, 6)}
-    </section>
     <section class="panel"><div class="ph"><div><h2>Tu dinero en los próximos días</h2><p>Si vendes como en las últimas 8 semanas y pagas lo que ya tienes registrado.</p></div>
       <div class="seg" role="group" aria-label="Periodo">${[30, 60, 90].map(d => `<button data-a="range" data-v="${d}" aria-pressed="${rng === d}">${d} días</button>`).join('')}</div></div>
       ${lineChart(series, res, rng, saldo, mn)}
       <div class="legend"><span><i style="border-color:var(--bosque)"></i>Tu saldo</span><span><i style="border-color:var(--ocre);border-top-style:dashed"></i>Tu fondo de reserva</span></div>
       <p class="lectura ${lect[0]}">${lect[1]}</p>
     </section>
-  </div>
-  <section class="panel"><div class="ph"><div><h2>¿A dónde se fue el dinero de ${MESES[pd(mk + '-01').getMonth()]}?</h2><p>De lo que vendiste, cuánto se fue en cada cosa y cuánto te quedó. Solo cuenta lo que ya pagaste.</p></div><button class="linkbtn" data-a="nav" data-v="reportes">Ver reporte completo</button></div>
-    ${rep.ventas ? waterfall(rep) : empty('ticket', 'Todavía no hay ventas este mes', 'Registra tus ventas para ver a dónde se va tu dinero.')}
+    <section class="panel"><div class="ph"><div><h2>¿A dónde se fue el dinero de ${MESES[pd(mk + '-01').getMonth()]}?</h2><p>De lo que vendiste, cuánto se fue en cada cosa. Solo cuenta lo que ya pagaste.</p></div></div>
+      ${rep.ventas ? waterfall(rep) : empty('ticket', 'Todavía no hay ventas este mes', 'Cierra tus días para ver a dónde se va tu dinero.')}
+    </section>
+  </div>`;
+  return `
+  ${primerosPasos()}
+  ${cerrarHoy}
+  ${caja}
+  ${alertHtml}
+  <section class="panel" data-tour="viene"><div class="ph"><div><h2>Lo que viene</h2><p>Tus pagos de las próximas dos semanas.</p></div><button class="linkbtn" data-a="nav" data-v="pagos">Ver todos</button></div>
+    ${timeline(upcoming, 5)}
   </section>
+  <details class="mas-detalle" ${READONLY || ui.detalleOpen ? 'open' : ''} data-detalle><summary>${icon('reportes')}<span><b>Ver gráficas y más números</b><span>Proyección, a dónde se fue el dinero, ventas de la semana, merma y nómina</span></span></summary>
+  ${detalle}
   <div class="grid3">
     <section class="panel dato"><div class="label">${icon('ventas')}Ventas de los últimos 7 días</div><div class="value">${money(v7)}</div><div class="note ${ch >= 0 ? 'up' : 'down'}">${v7p ? (ch >= 0 ? num(ch) + '% más' : num(-ch) + '% menos') + ' que la semana anterior' : 'Sin semana anterior para comparar'}</div>
       <div class="spark" aria-hidden="true">${days14.map((v, i) => `<i class="${i >= 7 ? 'on' : ''}" style="height:${Math.max(3, v / mx14 * 100)}%"></i>`).join('')}</div></section>
-    <section class="panel dato"><div class="label">${icon('perecederos')}Merma de ${MESES[pd(T).getMonth()]}</div><div class="value">${money(merma)}</div><div class="note">${top ? `Lo que más tiras: <b>${h(topName)}</b>, ${money(top[1])}` : 'Haz tu cierre del día para medirla'}</div>${top ? `<button class="linkbtn mt" data-a="goSugerida">Ver cuánto comprar</button>` : ''}</section>
-    <section class="panel dato"><div class="label">${icon('nomina')}Próxima nómina</div><div class="value">${nextNom ? money(nextNom.monto) : '—'}</div><div class="note">${nextNom ? cap(fdl(nextNom.fecha)) + ', ' + nextNom.n + ' personas' : 'Da de alta a tu equipo'}</div></section>
-  </div>`;
+    <section class="panel dato"><div class="label">${icon('perecederos')}Merma de ${MESES[pd(T).getMonth()]}</div><div class="value">${money(merma)}</div><div class="note">${top ? `Lo que más tiras: <b>${h(topName)}</b>, ${money(top[1])}` : 'Se mide con la herramienta Perecederos'}</div></section>
+    <section class="panel dato"><div class="label">${icon('nomina')}Próxima nómina</div><div class="value">${nextNom ? money(nextNom.monto) : '—'}</div><div class="note">${nextNom ? cap(fdl(nextNom.fecha)) + ', ' + nextNom.n + ' personas' : 'Se calcula con la herramienta Empleados y nómina'}</div></section>
+  </div>
+  </details>`;
 }
-
 /* ============ Gráficas ============ */
 function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw || 1))); const n = raw / p; return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * p; }
 function moneyShort(v) { const a = Math.abs(v); const s = a >= 1000 ? num(a / 1000, a >= 10000 ? 0 : 1) + ' mil' : num(a, 0); return (v < 0 ? '−$' : '$') + s; }
@@ -1463,26 +1496,6 @@ function perfilCredito() {
   const ok = checks.filter(c => c[1]).length;
   return { ventasMes, checks, nivel: ok >= 4 ? 'Alta' : ok >= 2 ? 'Media' : 'Baja', ok };
 }
-function vFinanciamiento() {
-  const P = perfilCredito();
-  const max = Math.max(10000, Math.round(P.ventasMes * 0.5 / 1000) * 1000);
-  const f = ui.fin = Object.assign({ monto: Math.min(60000, max), plazo: 6 }, ui.fin || {});
-  return `
-  <p class="aviso">Simulación con una tasa de ejemplo de 2.5% mensual; no es una oferta de crédito. En la versión final, con tu permiso, tu historial se compartiría con instituciones aliadas para conseguir mejores condiciones.</p>
-  <div class="grid2">
-    <section class="panel"><div class="ph"><div><h2>¿Qué tan listo estás para un crédito?</h2><p>Mientras más completos tus registros, mejor te pueden evaluar.</p></div><span class="tag ${P.nivel === 'Alta' ? 'ok' : P.nivel === 'Media' ? 'warn' : 'bad'}">Preparación ${P.nivel.toLowerCase()}</span></div>
-      <ol class="pasos">${P.checks.map(([l, ok, v, n]) => `<li class="${ok ? 'done' : ''}"><span class="n">${ok ? '✓' : '·'}</span><span><b>${l}</b><br><span class="hint">${n}</span></span><b>${v}</b></li>`).join('')}</ol>
-      <p class="hint mt">Vendes en promedio ${money(P.ventasMes)} al mes.${S.config.plan === 'acompanamiento' ? ' Tu plan Acompañamiento incluye acceso prioritario.' : ''}</p>
-    </section>
-    <section class="panel"><div class="ph"><div><h2>Simula un crédito</h2><p>Antes de pedirlo, mira si lo puedes pagar sin apretar tu caja.</p></div></div>
-      <form class="fields" data-fin>
-        <label>Monto<input name="monto" type="number" min="5000" max="${max * 2}" step="1000" value="${f.monto}" inputmode="numeric"></label>
-        <label>Plazo<select name="plazo">${[3, 6, 12].map(n => `<option value="${n}" ${Number(f.plazo) === n ? 'selected' : ''}>${n} meses</option>`).join('')}</select></label>
-      </form>
-      <div id="finOut">${finOut()}</div>
-    </section>
-  </div>`;
-}
 function finOut() {
   const f = ui.fin, P = perfilCredito(), T = today();
   const M = Number(f.monto) || 0, n = Number(f.plazo) || 6, r = 0.025;
@@ -1508,7 +1521,7 @@ let ADMIN = null;
 const FN_LBL = {
   simulador: ['Simulador', 'Probar decisiones antes de tomarlas'],
   promos: ['Promociones', 'Detectar el día flojo y medir promociones'],
-  financiamiento: ['Financiamiento', 'Perfil de crédito y simulador de préstamo'],
+  credito: ['Crédito', 'Precalificación de crédito con sus números. Si está apagada, el dueño la ve con candado como “Próximamente”.'],
   comunidad: ['Comunidad', 'Publicar y comentar con otros dueños'],
   equipo: ['Accesos para el equipo', 'Dar acceso a encargados o cajeros']
 };
@@ -1530,7 +1543,7 @@ function vAdmin() {
   const filtros = [['todos', 'Todos', R.length], ['acomp', 'Acompañamiento', acomp.length], ['auto', 'Autogestión', R.filter(r => r.plan !== 'acompanamiento').length], ['sinasesor', 'Sin asesor', sinAs.length], ['susp', 'Suspendidos', R.filter(r => r.suspendido).length]];
   const pasa = r => f === 'acomp' ? r.plan === 'acompanamiento' : f === 'auto' ? r.plan !== 'acompanamiento' : f === 'sinasesor' ? r.plan === 'acompanamiento' && !r.asesorId : f === 'susp' ? r.suspendido : true;
   const lista = R.filter(pasa).sort((a, b) => String(b.creado).localeCompare(String(a.creado)));
-  const off = r => Object.entries(r.funciones || {}).filter(([, v]) => v === false).map(([k]) => FN_LBL[k] ? FN_LBL[k][0] : k);
+  const off = r => Object.entries(r.funciones || {}).filter(([k, v]) => v === false && k !== 'credito').map(([k]) => FN_LBL[k] ? FN_LBL[k][0] : k);
   return `
   <p class="aviso info">${icon('candado')} Desde aquí activas planes y funciones y asignas asesores. Esta cuenta no puede abrir las finanzas de ningún restaurante.</p>
   <div class="grid3" style="grid-template-columns:repeat(4,minmax(0,1fr))">
@@ -1549,7 +1562,7 @@ function vAdmin() {
     ${lista.map(r => { const a = asesorDe(r.asesorId); const o = off(r); return `<tr data-text="${h((r.nombre + ' ' + r.ciudad + ' ' + r.dueno.nombre + ' ' + r.dueno.email).toLowerCase())}">
       <td>${h(r.nombre)}<br><span class="hint">${h(r.ciudad || '')}${r.creado ? ', desde ' + fds(String(r.creado).slice(0, 10)) : ''}</span></td>
       <td>${h(r.dueno.nombre)}<br><span class="hint">${h(r.dueno.email)}</span></td>
-      <td>${r.plan === 'acompanamiento' ? '<span class="tag acc">Acompañamiento</span>' : '<span class="tag">Autogestión</span>'}${r.solicitud && r.plan !== 'acompanamiento' ? '<br><span class="tag warn">Pidió Acompañamiento</span>' : ''}${o.length ? `<br><span class="hint">Apagado: ${h(o.join(', '))}</span>` : ''}</td>
+      <td>${r.plan === 'acompanamiento' ? '<span class="tag acc">Acompañamiento</span>' : '<span class="tag">Autogestión</span>'}${r.solicitud && r.plan !== 'acompanamiento' ? '<br><span class="tag warn">Pidió Acompañamiento</span>' : ''}${r.funciones && r.funciones.credito ? '<br><span class="tag ok">Crédito activo</span>' : ''}${o.length ? `<br><span class="hint">Apagado: ${h(o.join(', '))}</span>` : ''}</td>
       <td>${r.plan !== 'acompanamiento' ? '<span class="hint">No aplica</span>' : a ? h(a.nombre) : '<span class="tag warn">Sin asesor</span>'}</td>
       <td>${r.suspendido ? '<span class="tag bad">Suspendido</span>' : '<span class="tag ok">Activo</span>'}</td>
       <td class="right"><div class="acts"><button class="btn sec sm" data-a="adminEdit" data-id="${r.id}">Administrar</button></div></td></tr>`; }).join('')}
@@ -1569,14 +1582,15 @@ function openAdminModal(rid, planPre) {
       <p class="hint mt">${act.length ? 'Solo aplica con Acompañamiento. El asesor podrá ver los números de este restaurante, sin cambiarlos.' : 'Todavía no hay asesores. Créalos en la sección Asesores.'}</p>
     </fieldset>
     <fieldset><legend>Funciones activas</legend>
-      ${(ADMIN.funciones || Object.keys(FN_LBL)).map(k => `<label class="check"><input type="checkbox" name="fn_${k}" ${r.funciones[k] !== false ? 'checked' : ''}><span><b>${FN_LBL[k] ? FN_LBL[k][0] : k}</b><br><span class="muted">${FN_LBL[k] ? FN_LBL[k][1] : ''}</span></span></label>`).join('')}
+      ${(ADMIN.funciones || Object.keys(FN_LBL)).map(k => `<label class="check"><input type="checkbox" name="fn_${k}" ${(k === 'credito' ? r.funciones[k] === true : r.funciones[k] !== false) ? 'checked' : ''}><span><b>${FN_LBL[k] ? FN_LBL[k][0] : k}</b><br><span class="muted">${FN_LBL[k] ? FN_LBL[k][1] : ''}</span></span></label>`).join('')}
     </fieldset>
     <fieldset><legend>Estado de la cuenta</legend>
       <label class="check"><input type="radio" name="estado" value="activo" ${!r.suspendido ? 'checked' : ''}><span><b>Activa</b></span></label>
       <label class="check"><input type="radio" name="estado" value="suspendido" ${r.suspendido ? 'checked' : ''}><span><b>Suspendida</b><br><span class="muted">Nadie del restaurante puede entrar. Sus datos se conservan.</span></span></label>
     </fieldset>
     <div class="actions"><button type="button" class="btn sec" data-a="close">Cancelar</button><button class="btn" type="submit">Guardar cambios</button></div>
-  </form>`);
+  </form>
+  <div class="zona-peligro"><div><b>Eliminar esta cuenta</b><p class="hint">Borra el restaurante con todos sus datos y usuarios. No se puede deshacer.</p></div><button class="btn danger sm" data-a="adminBorrarAsk" data-id="${r.id}">Eliminar cuenta</button></div>`);
 }
 function vAsesores() {
   if (!ADMIN) return `<section class="panel">${empty('equipo', 'Cargando asesores…', '')}</section>`;
@@ -1745,7 +1759,7 @@ function vConfig() {
     </section>
     <section class="panel"><div class="ph"><h2>Cómo calculamos tu dinero</h2></div>
       <form class="fields" data-f="cfgFin">
-        <label>Saldo con el que empezaste<input name="saldoInicial" type="number" step="1" value="${c.saldoInicial}"></label>
+        <label>Saldo con el que empezaste<input id="cfgSaldo" name="saldoInicial" type="number" step="1" value="${c.saldoInicial}"></label>
         <label>Días de pagos a apartar<input name="dias" type="number" min="1" max="30" value="${c.diasCompromisos}"></label>
         <label>Margen para semáforo verde<input name="umbral" type="number" min="0" value="${c.umbralVerde}"></label>
         <label>% estimado de cuotas en nómina<input name="cuotas" type="number" min="0" max="60" step="0.5" value="${c.cuotasPct}"></label>
@@ -1960,7 +1974,7 @@ const forms = {
   signup: async fd => {
     const data = { nombre: String(fd.get('nombre')).trim(), email: String(fd.get('email')).trim().toLowerCase(), pass: String(fd.get('pass')), restaurante: String(fd.get('rest')).trim(), ciudad: String(fd.get('ciudad')).trim(), saldo: Number(fd.get('saldo')) || 0, plan: fd.get('plan'), aviso: fd.get('aviso') === 'on' };
     if (API) {
-      try { BOOTING = 'Creando tu restaurante…'; render(); const j = await api('registro', data); ui.tourDone = false; ui.tourStep = 0; await startCloud(j); toast('Listo. Empieza con los pasos de “Prepara tu restaurante”.'); }
+      try { BOOTING = 'Creando tu restaurante…'; render(); const j = await api('registro', data); ui.tourDone = false; ui.tourStep = 0; await startCloud(j); toast('Listo. Empieza con los pasos de “Empieza en tres pasos”.'); }
       catch (er) { BOOTING = null; ui.loginError = er.message; render(); }
       return;
     }
@@ -2047,7 +2061,7 @@ const forms = {
   },
   invite: async fd => { try { await api('invitar', { nombre: String(fd.get('nombre')).trim(), email: String(fd.get('email')).trim().toLowerCase(), pass: String(fd.get('pass')) }); toast('Listo, ya puede entrar con ese correo'); loadTeam(); } catch (e) { toast(e.message); } },
   cfgRest: fd => { Object.assign(S.restaurant, { nombre: fd.get('nombre'), ciudad: fd.get('ciudad'), giro: fd.get('giro') }); commit('Datos guardados'); },
-  cfgFin: fd => { Object.assign(S.config, { saldoInicial: Number(fd.get('saldoInicial')) || 0, diasCompromisos: Math.max(1, Number(fd.get('dias')) || 7), umbralVerde: Number(fd.get('umbral')) || 0, cuotasPct: Number(fd.get('cuotas')) || 0 }); commit('Guardado'); }
+  cfgFin: fd => { Object.assign(S.config, { saldoInicial: Number(fd.get('saldoInicial')) || 0, diasCompromisos: Math.max(1, Number(fd.get('dias')) || 7), umbralVerde: Number(fd.get('umbral')) || 0, cuotasPct: Number(fd.get('cuotas')) || 0, saldoOk: true }); commit('Guardado'); }
 };
 function scrollThread() { const t = document.getElementById('thread'); if (t) t.scrollTop = t.scrollHeight; }
 const FORMS_RO = new Set(['msg', 'advSession', 'post', 'comment', 'login', 'signup', 'recover', 'reset']);
@@ -2135,5 +2149,229 @@ async function boot() {
   }
   render();
 }
-boot();
 if ('serviceWorker' in navigator && location.protocol === 'https:') window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { }));
+
+/* ============ Cerrar el día (la pantalla principal del día a día) ============ */
+function diaCerrado(d) { return S.sales.some(s => s.fecha === d); }
+function ventasDe(d) { const o = { Efectivo: 0, Tarjeta: 0, Transferencia: 0 }; S.sales.filter(s => s.fecha === d).forEach(s => o[s.metodo] = (o[s.metodo] || 0) + s.monto); return o; }
+function gastoRow(g) {
+  return `<div class="gasto-row" data-gasto>
+    <label>Concepto<input name="g_concepto" value="${h(g.concepto || '')}" placeholder="Ej. Gas, tortillas, hielo"></label>
+    <label>Tipo<select name="g_cat">${CATS_PAGO.filter(c => c !== 'Nómina' && c !== 'Retiro del dueño').map(c => `<option ${g.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    <label>Monto<input name="g_monto" type="number" min="0" step="1" value="${g.monto || ''}" placeholder="$0" inputmode="numeric"></label>
+    <button type="button" class="btn ghost sm" data-a="diaDelGasto" aria-label="Quitar este gasto">Quitar</button>
+  </div>`;
+}
+function diaResumen(ef, tj, tr, gastos, fecha) {
+  const tot = ef + tj + tr; const prom = avgByWeekday()[pd(fecha).getDay()];
+  const comp = !tot || !prom ? '' : tot >= prom ? `<span class="up">${num((tot - prom) / prom * 100, 0)}% más</span> que un ${DIAS[pd(fecha).getDay()]} normal (${money(prom)})` : `<span class="down">${num((prom - tot) / prom * 100, 0)}% menos</span> que un ${DIAS[pd(fecha).getDay()]} normal (${money(prom)})`;
+  return `<div class="label">Vendiste</div><div class="value">${money(tot)}</div><div class="note">${comp || (tot ? 'Todavía no hay suficientes días para comparar.' : 'Escribe lo que vendiste.')}</div>
+    ${isStaff() ? '' : `<div class="dia-cuenta"><div><span>Pagaste</span><b>${money(gastos)}</b></div><div><span>Te quedó del día</span><b class="${tot - gastos < 0 ? 'down' : ''}">${money(tot - gastos)}</b></div></div>`}`;
+}
+function vDia() {
+  const T = today(); const f = ui.diaDate || T;
+  const v = ventasDe(f), gastos = S.payables.filter(p => p.origen === 'dia' && p.pagadoEl === f);
+  const ex = S.cortes.find(c => c.fecha === f);
+  const cerrado = diaCerrado(f);
+  const venceHoy = isStaff() || f !== T ? [] : pendientes().filter(p => p.vence <= T);
+  const hecho = ui.diaHecho === f && cerrado;
+  const last7 = []; for (let i = 0; i < 7; i++) last7.push(addD(T, -i));
+  const racha = (() => { let n = 0; for (let i = diaCerrado(T) ? 0 : 1; i < 60; i++) { if (diaCerrado(addD(T, -i))) n++; else break; } return n; })();
+  const vf = v.Efectivo + v.Tarjeta + v.Transferencia, gf = sum(gastos, 'monto');
+  return `
+  ${hecho ? `<section class="dia-ok"><div>${icon('sirvio')}<div><b>Listo, ${f === T ? 'cerraste el día de hoy' : 'guardaste el ' + fdl(f)}.</b><p>Vendiste ${money(vf)}${isStaff() ? '' : ` y pagaste ${money(gf)}. Hoy puedes usar ${money(Math.max(0, disponible()))} sin apretarte`}.</p></div></div>${isStaff() ? '' : '<button class="btn sec" data-a="nav" data-v="inicio">Ver mi dinero</button>'}</section>` : ''}
+  <div class="g75">
+    <section class="panel">
+      <div class="ph"><div><h2>${f === T ? 'Cierra tu día' : 'Cierre del ' + fdl(f)}</h2><p>${cerrado ? 'Este día ya tiene registro. Si cambias algo, se reemplaza.' : 'Contesta dos preguntas. Toma un minuto.'}</p></div>
+        <label class="inline-date">Día<input type="date" value="${f}" max="${T}" data-a-change="diaDate"></label></div>
+      <form class="dia-form" data-f="dia" data-calc="dia">
+        <input type="hidden" name="fecha" value="${f}">
+        <fieldset><legend><span class="num-paso">1</span>¿Cuánto vendiste?</legend>
+          <p class="hint">Lo que dice tu terminal y lo que hay en caja. Si no sabes cuánto fue de cada cosa, ponlo todo en efectivo.</p>
+          <div class="fields">
+            <label>En efectivo<input name="ef" class="money-in" type="number" min="0" step="1" value="${v.Efectivo || ''}" placeholder="$0" inputmode="numeric" id="diaEf"></label>
+            <label>Con tarjeta<input name="tj" class="money-in" type="number" min="0" step="1" value="${v.Tarjeta || ''}" placeholder="$0" inputmode="numeric"></label>
+            <label>Por transferencia<input name="tr" class="money-in" type="number" min="0" step="1" value="${v.Transferencia || ''}" placeholder="$0" inputmode="numeric"></label>
+          </div>
+        </fieldset>
+        ${isStaff() ? '' : `<fieldset><legend><span class="num-paso">2</span>¿Pagaste algo ${f === T ? 'hoy' : 'ese día'}?</legend>
+          <p class="hint">Lo que salió del negocio: compras al momento, gas, hielo, una reparación. Si no pagaste nada, déjalo vacío.</p>
+          <div data-gastos>${(gastos.length ? gastos : [{}]).map(gastoRow).join('')}</div>
+          <button type="button" class="btn sec sm mt" data-a="diaAddGasto">${icon('mas1')}Agregar otro gasto</button>
+        </fieldset>`}
+        <details class="dia-caja" ${ex ? 'open' : ''}><summary><span class="num-paso">${isStaff() ? 2 : 3}</span>Contar la caja <span class="hint">(opcional)</span></summary>
+          <p class="hint">Cuenta el efectivo al cerrar y te decimos si cuadra.</p>
+          <div class="fields">
+            <label>Fondo con el que abriste<input name="fondo" type="number" min="0" value="${ex ? ex.fondo : S.config.fondoCaja}" inputmode="numeric"></label>
+            <label>Efectivo que contaste<input name="contado" type="number" min="0" value="${ex ? ex.contado : ''}" placeholder="$0" inputmode="numeric"></label>
+          </div>
+          <div data-dia-caja></div>
+        </details>
+        <div class="form-actions"><button class="btn big" type="submit">${icon('sirvio')}${cerrado ? 'Guardar cambios' : f === T ? 'Cerrar el día' : 'Guardar este día'}</button></div>
+      </form>
+    </section>
+    <div class="stack">
+      <section class="panel dato" data-dia-res>${diaResumen(v.Efectivo, v.Tarjeta, v.Transferencia, gf, f)}</section>
+      ${venceHoy.length ? `<section class="panel"><div class="ph"><div><h2>Pagos que vencen hoy</h2><p>Si ya los pagaste, márcalos.</p></div></div><div class="stack">${venceHoy.slice(0, 5).map(itemRow).join('')}</div></section>` : ''}
+      <section class="panel"><div class="ph"><div><h2>Tu semana</h2><p>${racha >= 2 ? `Llevas ${racha} días seguidos cerrando. Así tus números son confiables.` : 'Cerrar cada día hace que tus números sean confiables.'}</p></div></div>
+        <ul class="semana">${last7.map(d => { const ok = diaCerrado(d); const t = sum(S.sales.filter(s => s.fecha === d), 'monto'); return `<li class="${ok ? 'ok' : ''} ${d === f ? 'sel' : ''}"><span class="d">${d === T ? 'Hoy' : cap(DIAS[pd(d).getDay()]).slice(0, 3) + ' ' + pd(d).getDate()}</span>${ok ? `<b>${money(t)}</b>` : '<span class="hint">Sin cerrar</span>'}${d !== f ? `<button class="linkbtn" data-a="diaVer" data-v="${d}">${ok ? 'Ver' : 'Cerrar'}</button>` : '<span class="hint">Abierto</span>'}</li>`; }).join('')}</ul>
+      </section>
+    </div>
+  </div>`;
+}
+function diaCajaTxt(form) {
+  const n = k => Number(form[k] && form[k].value) || 0;
+  if (!form.contado || form.contado.value === '') return '';
+  const gastos = [...form.querySelectorAll('[name="g_monto"]')].reduce((a, i) => a + (Number(i.value) || 0), 0);
+  const esp = n('fondo') + n('ef') - gastos; const d = n('contado') - esp;
+  return `<p class="lectura ${Math.abs(d) < 1 ? '' : d > 0 ? 'warn' : 'bad'}">Debería haber ${money(esp)}: fondo, más ventas en efectivo, menos lo que pagaste. ${Math.abs(d) < 1 ? '<b>La caja cuadra.</b>' : d > 0 ? `<b>Sobran ${money(d)}.</b>` : `<b>Faltan ${money(-d)}.</b> Revisa el cambio y los gastos que no anotaste.`}</p>`;
+}
+document.addEventListener('input', e => {
+  const f = e.target.closest('form[data-calc="dia"]'); if (!f) return;
+  const n = k => Number(f[k] && f[k].value) || 0;
+  const gastos = [...f.querySelectorAll('[name="g_monto"]')].reduce((a, i) => a + (Number(i.value) || 0), 0);
+  const r = document.querySelector('[data-dia-res]'); if (r) r.innerHTML = diaResumen(n('ef'), n('tj'), n('tr'), gastos, f.fecha.value);
+  const c = f.querySelector('[data-dia-caja]'); if (c) c.innerHTML = diaCajaTxt(f);
+});
+document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.aChange === 'diaDate') { ui.diaDate = e.target.value; ui.diaHecho = null; render(); } });
+document.addEventListener('toggle', e => { if (e.target.matches && e.target.matches('[data-detalle]')) ui.detalleOpen = e.target.open; }, true);
+
+/* ============ Herramientas ============ */
+function vHerramientas() {
+  const list = HERR.filter(([k]) => fnOk(k));
+  return `<p class="aviso info">${icon('herr')} Elige solo lo que de verdad usas; así la app se mantiene sencilla. Puedes cambiarlo cuando quieras y tus datos no se borran al quitar una herramienta.</p>
+  <div class="herr-grid">${list.map(([k, l, d]) => { const on = herrOn(k); return `<section class="panel herr ${on ? 'on' : ''}"><div class="herr-h">${icon(ICON_OF[k])}<b>${l}</b>${on ? '<span class="tag ok">En tu menú</span>' : ''}</div><p>${d}</p><div class="row">${on ? `<button class="btn sec sm" data-a="nav" data-v="${k}">Abrir</button><button class="btn ghost sm" data-a="herrToggle" data-v="${k}">Quitar del menú</button>` : `<button class="btn sm" data-a="herrToggle" data-v="${k}">${icon('mas1')}Agregar al menú</button>`}</div></section>`; }).join('')}</div>`;
+}
+
+/* ============ Crédito: precalificación con los datos del negocio ============ */
+const TASA_EJ = 0.025, PLAZO_PRE = 12;
+function precalif() {
+  const T = today(), ventanas = [];
+  for (let k = 0; k < 6; k++) {
+    const hasta = addD(T, -1 - 30 * k), desde = addD(hasta, -29);
+    const ventas = sum(S.sales.filter(s => s.fecha >= desde && s.fecha <= hasta), 'monto');
+    const egresos = sum(S.payables.filter(p => p.estado === 'pagado' && p.pagadoEl >= desde && p.pagadoEl <= hasta && p.categoria !== 'Retiro del dueño' && p.categoria !== 'Créditos'), 'monto');
+    if (ventas > 0) ventanas.push({ desde, hasta, ventas, queda: ventas - egresos });
+  }
+  const n = ventanas.length;
+  const ventasMes = n ? sum(ventanas, 'ventas') / n : 0, quedaMes = n ? sum(ventanas, 'queda') / n : 0;
+  const pos = ventanas.filter(w => w.queda > 0).length;
+  const weeks = []; for (let k = 1; k <= 12; k++) { const e = addD(T, -7 * (k - 1) - 1), st = addD(e, -6); weeks.push(sum(S.sales.filter(s => s.fecha >= st && s.fecha <= e), 'monto')); }
+  const wk = weeks.filter(v => v > 0), mean = wk.length ? sum(wk, v => v) / wk.length : 0;
+  const cv = mean && wk.length > 2 ? Math.sqrt(sum(wk, v => (v - mean) ** 2) / wk.length) / mean : 1;
+  const paid = S.payables.filter(p => p.estado === 'pagado' && p.pagadoEl >= addD(T, -180) && p.origen !== 'dia' && p.categoria !== 'Retiro del dueño');
+  const punt = paid.length ? paid.filter(p => p.pagadoEl <= p.vence).length / paid.length : 0;
+  const dias30 = new Set(S.sales.filter(s => s.fecha >= addD(T, -30) && s.fecha < T).map(s => s.fecha)).size;
+  const f = [
+    ['Historial', Math.min(n, 6) / 6 * 30, 30, `${n} de 6 meses con ventas registradas`, 'Sigue cerrando tus días: cada mes suma.'],
+    ['Ventas estables', wk.length < 3 ? 0 : cv < 0.15 ? 25 : cv < 0.25 ? 17 : cv < 0.4 ? 9 : 3, 25, wk.length < 3 ? 'Faltan semanas con ventas para medirlo' : cv < 0.15 ? 'Tus ventas semanales son parejas' : cv < 0.25 ? 'Tus ventas varían un poco' : 'Tus ventas cambian mucho de semana a semana', 'Mientras más parejo vendes, más confianza das.'],
+    ['Pagos a tiempo', punt * 25, 25, paid.length ? `${num(punt * 100, 0)}% de tus pagos, a tiempo o antes` : 'Todavía no hay pagos programados registrados', 'Marca tus pagos el día que los haces.'],
+    ['Te sobra dinero', n ? pos / n * 20 : 0, 20, n ? `${pos} de ${n} meses te quedó dinero después de pagar todo` : 'Sin meses para revisar', 'Si un mes sale en rojo, revisa a dónde se fue el dinero.']
+  ];
+  const score = Math.round(sum(f, x => x[1]));
+  const nivel = n < 3 ? ['', 'Todavía no'] : score >= 75 ? ['ok', 'Muy buena'] : score >= 55 ? ['ok', 'Buena'] : score >= 35 ? ['warn', 'Regular'] : ['bad', 'Baja'];
+  const pago = n >= 3 && score >= 35 ? Math.max(0, Math.min(quedaMes * 0.35, ventasMes * 0.10)) : 0;
+  const monto = Math.floor(pago * (1 - Math.pow(1 + TASA_EJ, -PLAZO_PRE)) / TASA_EJ / 1000) * 1000;
+  return { n, ventasMes, quedaMes, pos, cv, punt, dias30, f, score, nivel, pago: monto ? monto * TASA_EJ / (1 - Math.pow(1 + TASA_EJ, -PLAZO_PRE)) : 0, monto };
+}
+function vFinanciamiento() {
+  const P = precalif();
+  const factores = `<ul class="factores">${P.f.map(([l, v, mx, txt]) => `<li><div class="row" style="justify-content:space-between"><b>${l}</b><span class="hint">${Math.round(v)} de ${mx}</span></div><div class="progress"><span style="width:${v / mx * 100}%"></span></div><span class="hint">${txt}</span></li>`).join('')}</ul>`;
+  if (!creditoOn()) {
+    return `
+    <section class="credito-lock">
+      <div>${icon('candado')}<span class="tag">Próximamente</span></div>
+      <h2>Crédito para tu negocio</h2>
+      <p>Con los números que ya registras en la app te diremos cuánto te podrían prestar y con qué pago mensual, sin buró y sin papeleo. El equipo de .Py México la activará para tu restaurante pronto.</p>
+    </section>
+    <div class="grid2">
+      <section class="panel"><div class="ph"><div><h2>Así te ves hoy</h2><p>Esto es lo que usaremos para precalificarte. Puedes irlo mejorando desde ya.</p></div></div>${factores}</section>
+      <section class="panel"><div class="ph"><h2>Cómo prepararte</h2></div>
+        <ol class="pasos">
+          <li class="${P.dias30 >= 24 ? 'done' : ''}"><span class="n">${P.dias30 >= 24 ? '✓' : 1}</span><span class="t">Cierra tu día casi todos los días. Este mes llevas ${P.dias30} de 30.</span></li>
+          <li class="${P.punt >= 0.8 ? 'done' : ''}"><span class="n">${P.punt >= 0.8 ? '✓' : 2}</span><span class="t">Registra tus pagos programados y márcalos cuando los hagas.</span></li>
+          <li class="${P.n >= 6 ? 'done' : ''}"><span class="n">${P.n >= 6 ? '✓' : 3}</span><span class="t">Junta 6 meses de historial. Llevas ${P.n}.</span></li>
+        </ol>
+        ${isOwner() && !READONLY ? '<button class="btn mt" data-a="nav" data-v="dia">Cerrar el día de hoy</button>' : ''}
+      </section>
+    </div>`;
+  }
+  const max = Math.max(10000, Math.round(P.ventasMes * 0.5 / 1000) * 1000);
+  ui.fin = Object.assign({ monto: P.monto ? Math.min(P.monto, max * 2) : Math.min(30000, max), plazo: 12 }, ui.fin || {});
+  const R = S.restaurant;
+  return `
+  <p class="aviso">Precalificación de ejemplo con una tasa de 2.5% mensual. Es una simulación educativa, no una oferta de crédito.</p>
+  <section class="credito-hero print-area">
+    <div class="ch-main">
+      <span class="k">${P.monto ? 'Te podrían prestar hasta' : 'Precalificación'}</span>
+      ${P.monto ? `<div class="big">${money(P.monto)}</div><p>con pagos de <b>${money(P.pago)}</b> al mes durante ${PLAZO_PRE} meses.</p>`
+      : `<div class="big sm">${P.n < 3 ? 'Faltan datos' : 'Por ahora no'}</div><p>${P.n < 3 ? `Necesitamos al menos 3 meses de ventas registradas para precalificarte. Llevas ${P.n}.` : 'Con tus números de hoy, un crédito apretaría tu caja. Revisa abajo qué mejorar.'}</p>`}
+      <span class="tag ${P.nivel[0]}">Calificación: ${P.nivel[1]}${P.n >= 3 ? ` (${P.score} de 100)` : ''}</span>
+    </div>
+    <div class="ch-why">
+      <b>¿De dónde sale?</b>
+      <ul>
+        <li>Vendes en promedio <b>${money(P.ventasMes)}</b> al mes.</li>
+        <li>Después de pagar todo te quedan en promedio <b>${money(P.quedaMes)}</b> al mes.</li>
+        <li>El pago se calcula para no pasar del 35% de lo que te queda ni del 10% de lo que vendes. Así no te ahoga.</li>
+      </ul>
+    </div>
+  </section>
+  <div class="grid2">
+    <section class="panel print-area"><div class="ph"><div><h2>Qué cuenta en tu calificación</h2><p>${h(R.nombre)}${R.ciudad ? ', ' + h(R.ciudad.replace(/\.$/, '')) : ''}. Datos al ${fdl(today())}.</p></div></div>${factores}
+      <div class="row mt no-print"><button class="btn sec" data-a="print">Descargar reporte para el banco</button></div>
+      <p class="hint mt no-print">Se abre la ventana de imprimir: elige “Guardar como PDF”.</p></section>
+    <section class="panel no-print"><div class="ph"><div><h2>Simula tu crédito</h2><p>Antes de pedirlo, mira si lo puedes pagar sin apretar tu caja.</p></div></div>
+      <form class="fields" data-fin>
+        <label>Monto<input name="monto" type="number" min="5000" max="${Math.max(max * 2, P.monto)}" step="1000" value="${ui.fin.monto}" inputmode="numeric"></label>
+        <label>Plazo<select name="plazo">${[3, 6, 12].map(n => `<option value="${n}" ${Number(ui.fin.plazo) === n ? 'selected' : ''}>${n} meses</option>`).join('')}</select></label>
+      </form>
+      <div id="finOut">${finOut()}</div>
+    </section>
+  </div>`;
+}
+
+/* ============ Acciones y formularios nuevos ============ */
+Object.assign(actions, {
+  goDia: () => go('dia'),
+  goSaldo: () => { ui.focus = 'cfgSaldo'; go('config'); },
+  diaVer: el => { ui.diaDate = el.dataset.v; ui.diaHecho = null; render(); window.scrollTo(0, 0); },
+  diaAddGasto: () => { const c = document.querySelector('[data-gastos]'); if (!c) return; c.insertAdjacentHTML('beforeend', gastoRow({})); const i = c.querySelectorAll('[name="g_concepto"]'); i[i.length - 1].focus(); },
+  diaDelGasto: el => { const r = el.closest('[data-gasto]'); const c = r.parentElement; if (c.querySelectorAll('[data-gasto]').length > 1) r.remove(); else r.querySelectorAll('input').forEach(i => i.value = ''); const f = c.closest('form'); if (f) f.dispatchEvent(new Event('input', { bubbles: true })); },
+  herrToggle: el => { const k = el.dataset.v; const on = !herrOn(k); S.config.herramientas = Object.assign(herrMap(), { [k]: on }); const l = HERR.find(x => x[0] === k)[1]; commit(on ? l + ' está en tu menú' : l + ' salió de tu menú'); },
+  adminBorrarAsk: el => {
+    const r = ADMIN && ADMIN.restaurantes.find(x => x.id === el.dataset.id); if (!r) return;
+    openModal(`<h2>Eliminar cuenta</h2><p>Se borrarán <b>${h(r.nombre)}</b>, todos sus registros, los accesos de su equipo, sus mensajes y sus publicaciones. No se puede deshacer.</p>
+    <form class="fields mt" data-f="adminBorrar" data-id="${r.id}"><label class="wide">Para confirmar, escribe el nombre del restaurante: <b>${h(r.nombre)}</b><input name="confirmar" required autocomplete="off"></label>
+    <div class="wide actions"><button type="button" class="btn sec" data-a="close">Cancelar</button><button class="btn danger" type="submit">Eliminar para siempre</button></div></form>`);
+  }
+});
+Object.assign(forms, {
+  dia: fd => {
+    const fecha = fd.get('fecha'); const n = k => Math.max(0, Math.round(Number(fd.get(k)) || 0));
+    const v = { Efectivo: n('ef'), Tarjeta: n('tj'), Transferencia: n('tr') };
+    const tot = v.Efectivo + v.Tarjeta + v.Transferencia;
+    if (!tot) { toast('Escribe cuánto vendiste, aunque sea aproximado.'); const i = document.getElementById('diaEf'); if (i) i.focus(); return; }
+    S.sales = S.sales.filter(s => s.fecha !== fecha);
+    METODOS.forEach(m => { if (v[m]) S.sales.push({ id: uid(), fecha, monto: v[m], metodo: m, nota: 'Cierre del día', dia: true }); });
+    let gastos = 0;
+    if (!isStaff()) {
+      const cs = fd.getAll('g_concepto'), ks = fd.getAll('g_cat'), ms = fd.getAll('g_monto');
+      S.payables = S.payables.filter(p => !(p.origen === 'dia' && p.pagadoEl === fecha));
+      cs.forEach((c, i) => { const m = Math.round(Number(ms[i]) || 0); if (m > 0) { gastos += m; S.payables.push({ id: uid(), concepto: String(c).trim() || ks[i] || 'Gasto del día', categoria: ks[i] || 'Otros', monto: m, vence: fecha, estado: 'pagado', pagadoEl: fecha, origen: 'dia' }); } });
+    }
+    const contado = fd.get('contado');
+    if (contado !== null && contado !== '') {
+      S.cortes = S.cortes.filter(c => c.fecha !== fecha);
+      const c = { id: 'corte_' + fecha, fecha, fondo: n('fondo'), ventasEf: v.Efectivo, gastosEf: gastos, contado: n('contado'), nota: 'Cierre del día' };
+      S.cortes.push(c); S.config.fondoCaja = c.fondo;
+    }
+    ui.diaHecho = fecha; window.scrollTo(0, 0);
+    commit('Día cerrado: vendiste ' + money(tot));
+  },
+  adminBorrar: async (fd, f) => {
+    try { await api('adminBorrar', { restauranteId: f.dataset.id, confirmar: String(fd.get('confirmar') || '') }); closeModal(); toast('Cuenta eliminada'); loadAdmin(); } catch (e) { toast(e.message); }
+  }
+});
+
+boot();
